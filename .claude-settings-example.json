@@ -1,0 +1,9 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\\\PythonProject\\\\minimal-mcp\\\\go\\\\claude-token-monitor\\\\statusline.exe",
+    "env": {
+      "STATUSLINE_MULTILINE": "1"
+    }
+  }
+}

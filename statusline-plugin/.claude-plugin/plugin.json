@@ -1,0 +1,24 @@
+{
+  "name": "claude-statusline",
+  "version": "1.0.0",
+  "description": "Real-time token usage monitor for Claude Code status bar with git info, tools, agents, and TODO progress",
+  "author": "young1lin",
+  "license": "MIT",
+  "homepage": "https://github.com/young1lin/minimal-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/young1lin/minimal-mcp.git",
+    "directory": "go/claude-token-monitor/statusline-plugin"
+  },
+  "keywords": [
+    "statusline",
+    "token-usage",
+    "monitor",
+    "git",
+    "productivity"
+  ],
+  "statusLine": {
+    "type": "npm",
+    "package": "@young1lin/claude-statusline"
+  }
+}
