@@ -1,0 +1,51 @@
+{
+  "name": "@young1lin/claude-token-monitor",
+  "version": "1.0.0",
+  "description": "Real-time Claude Code token usage monitor with TUI and statusline plugin",
+  "main": "index.js",
+  "bin": {
+    "claude-token-monitor": "./bin/claude-token-monitor",
+    "ctm": "./bin/claude-token-monitor"
+  },
+  "scripts": {
+    "install": "node install.js",
+    "postinstall": "node postinstall.js",
+    "prepublishOnly": "npm run build",
+    "build": "node build-wrapper.js",
+    "build:monitor": "go build -o bin/claude-token-monitor -ldflags=\"-s -w\" ./cmd/monitor",
+    "build:statusline": "go build -o bin/claude-statusline -ldflags=\"-s -w\" ./cmd/statusline",
+    "build:all": "node build-all.js",
+    "test": "go test ./...",
+    "pack:monitor": "npm pack --pack-destination ./dist",
+    "pack:statusline": "cd statusline-plugin && npm pack"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "postinstall.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "claude-code",
+    "token-monitor",
+    "tui",
+    "cli",
+    "bubbletea"
+  ],
+  "author": {
+    "name": "young1lin"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/young1lin/minimal-mcp.git",
+    "directory": "go/claude-token-monitor"
+  },
+  "homepage": "https://github.com/young1lin/minimal-mcp/tree/main/go/claude-token-monitor",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

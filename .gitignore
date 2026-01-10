@@ -1,0 +1,30 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+test-input.json
+test_input.json
+*.txt
+*.html
+test.cmd
+test.ps1
+
+# Local Claude settings only (settings.json is OK to commit)
+.claude/settings.local.json
+
+# Go
+go.work
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
