@@ -393,6 +393,164 @@ External changes (like switching git branch in another terminal) won't show unti
 
 ---
 
+# StatusLine Plugin - Hot Reload Mechanism
+
+## How StatusLine Plugin Loading Works
+
+### Execution Model: "Fire and Forget"
+
+The statusline plugin works on a **stateless execution model**, not a persistent daemon process:
+
+```
+┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
+│  Claude Code    │─────▶│ statusline.exe   │─────▶│  Exit (0)       │
+│  (main process) │      │  (spawn & wait)  │      │  (cleanup)      │
+└─────────────────┘      └──────────────────┘      └─────────────────┘
+        │                         │
+        │                         │
+    ┌───▼──────┐          ┌──────▼──────┐
+    │  stdin   │          │   stdout    │
+    │  (JSON)  │          │  (output)   │
+    └──────────┘          └─────────────┘
+```
+
+### Why Hot Reload Works Automatically
+
+**Key Principle**: Each statusline refresh creates a **new process** that loads the latest `statusline.exe` from disk.
+
+#### Execution Flow (Per Refresh)
+
+1. **Claude Code needs to update statusline**
+   - Trigger: New message, token change, `/context` command, etc.
+
+2. **Spawn process**
+   ```javascript
+   // Claude Code internal (pseudocode)
+   const process = spawn('statusline.exe', {
+       env: { STATUSLINE_MULTILINE: '1' }
+   });
+   ```
+
+3. **Write input to stdin**
+   ```json
+   {
+     "cwd": "C:\\Project",
+     "model": { "display_name": "GLM-4.7" },
+     "context_window": { "context_window_size": 200000, ... }
+   }
+   ```
+
+4. **Read output from stdout**
+   ```
+   📁 project | [GLM-4.7] | [███░░░░░░░] 75K/200K
+   ```
+
+5. **Process exits** → Memory is freed
+
+6. **Display output** in statusline area
+
+### Why Recompiling Works Without Restart
+
+| Scenario | What Happens |
+|----------|--------------|
+| **Initial state** | `statusline.exe` (v1.0) on disk |
+| **Recompile** | `go build` overwrites `statusline.exe` with (v2.0) |
+| **Next refresh** | Claude Code spawns `statusline.exe` → loads v2.0 from disk |
+| **Result** | ✅ New version runs automatically |
+
+**Critical Point**: The executable file is **read fresh from disk on each invocation**. There's no in-memory caching of the binary itself.
+
+### Comparison: Daemon vs Stateless
+
+| Aspect | Daemon (Persistent) | StatusLine (Stateless) |
+|--------|---------------------|------------------------|
+| Process lifecycle | Runs continuously | Starts/exits per refresh |
+| Memory state | Persistent across refreshes | Reset each invocation |
+| Hot reload | Requires restart/SIGUSR1 | Automatic (new process) |
+| Resource usage | Higher (constant RAM) | Lower (brief CPU spikes) |
+| Failure impact | Crashes affect all refreshes | Single refresh failure only |
+
+### Why Claude Code Uses This Model
+
+1. **Simplicity**: No need for IPC, daemon lifecycle management
+2. **Reliability**: If plugin crashes, only one refresh fails
+3. **Flexibility**: Easy to swap/upgrade plugins
+4. **Language Agnostic**: Any executable that reads stdin/writes stdout works
+
+### Practical Implications
+
+#### For Development
+```bash
+# Edit code
+vim cmd/statusline/main.go
+
+# Recompile (overwrites existing binary)
+go build -o statusline.exe ./cmd/statusline
+
+# Test immediately - no Claude Code restart needed!
+# Next refresh automatically uses new version
+```
+
+#### For Users
+```bash
+# Update to latest version
+cp new-statusline.exe ~/.claude/statusline.exe
+
+# Works immediately - no restart
+```
+
+#### Caching Behavior
+
+**What IS cached**: Plugin output (for ~1-5 seconds to avoid flicker)
+
+**What is NOT cached**: The executable binary itself
+
+```go
+// Claude Code internal (simplified)
+let lastOutput = '';
+let lastUpdateTime = 0;
+
+function refreshStatusline() {
+    const now = Date.now();
+    if (now - lastUpdateTime < 5000) {
+        return lastOutput;  // Use cached output
+    }
+
+    const output = spawnSync('statusline.exe', ...);
+    lastOutput = output;
+    lastUpdateTime = now;
+    return output;
+}
+```
+
+### Verification
+
+**To verify hot reload is working:**
+
+1. Add a visible change to `main.go`:
+   ```go
+   fmt.Println("🔥 TEST v2.0")  // Add unique marker
+   ```
+
+2. Recompile:
+   ```bash
+   go build -o statusline.exe ./cmd/statusline
+   ```
+
+3. Send a message in Claude Code
+
+4. **Expected**: Statusline shows "🔥 TEST v2.0"
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Changes not appearing | Old binary still running | Check for zombie processes (`ps aux \| grep statusline`) |
+| Stale output | Output cache not expired | Wait 5+ seconds or send new message |
+| Wrong version | Multiple `statusline.exe` on PATH | Verify which binary is being used (`which statusline.exe`) |
+
+---
+
 # Web UI Development - Windows Platform Issue Resolution
 
 ## Overview
