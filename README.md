@@ -30,8 +30,19 @@ claude-token-monitor
 ## How it works
 
 The tool monitors Claude Code's JSONL session files located at:
-- Windows: `%APPDATA%\Claude\`
-- macOS: `~/Library/Application Support/Claude/`
-- Linux: `~/.config/Claude/`
+
+**All platforms**: `$HOME/.claude/`
+
+```
+~/.claude/
+├── projects/           # Session data for all projects
+│   ├── C--Users-...-project1/
+│   │   ├── session-id-1.jsonl
+│   │   └── session-id-2.jsonl
+│   └── C--Users-...-project2/
+│       └── session-id-3.jsonl
+├── settings.json       # Global settings
+└── CLAUDE.md           # Global instructions (if exists)
+```
 
 It parses `type: "assistant"` messages to extract token usage data.
