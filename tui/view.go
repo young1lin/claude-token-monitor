@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -18,14 +19,23 @@ func (m Model) View() string {
 		return "Goodbye!\n"
 	}
 
+	// ANSI escape sequences to clear screen and move cursor to top-left
+	// This ensures clean transitions between views on all terminals including PowerShell 7
+	const clearScreen = "\x1b[2J\x1b[H"
+
 	// Show error if any
 	if m.err != nil {
-		return m.renderError()
+		return clearScreen + m.renderError()
 	}
 
 	// Show loading if not ready
 	if !m.ready {
-		return m.renderLoading()
+		return clearScreen + m.renderLoading()
+	}
+
+	// Route to project selection view
+	if m.viewState == ViewProjectSelection {
+		return clearScreen + m.renderProjectSelection()
 	}
 
 	// Build main UI
@@ -61,10 +71,10 @@ func (m Model) View() string {
 	if m.showSessionList && len(m.sessions) > 1 {
 		sidebar := m.renderSessionList()
 		mainContent := m.styles.Border.Render(content)
-		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, "  ", mainContent)
+		return clearScreen + lipgloss.JoinHorizontal(lipgloss.Top, sidebar, "  ", mainContent)
 	}
 
-	return m.styles.Border.Render(content)
+	return clearScreen + m.styles.Border.Render(content)
 }
 
 // renderHeader renders the header section
@@ -451,4 +461,80 @@ func (m Model) renderSessionList() string {
 
 	content := strings.Join(lines, "\n")
 	return m.styles.SessionListBorder.Render(content)
+}
+
+// renderProjectSelection renders the project selection screen
+func (m Model) renderProjectSelection() string {
+	title := m.styles.Title.Render("Claude Token Monitor - Select Project")
+	lines := []string{title, "", "Available Projects:", ""}
+
+	if len(m.projects) == 0 {
+		return m.renderNoProjects()
+	}
+
+	for i, project := range m.projects {
+		var style lipgloss.Style
+		if i == m.selectedProject {
+			style = m.styles.Highlight
+		} else {
+			style = m.styles.Value
+		}
+
+		indicator := "  "
+		if i == m.selectedProject {
+			indicator = "▶ "
+		}
+
+		// Activity status
+		timeSince := time.Since(project.LastActivity)
+		status := "● Active"
+		if timeSince > 5*time.Minute {
+			status = "○ Idle"
+		}
+
+		projectName := project.Name
+		if len(projectName) > 30 {
+			projectName = projectName[:27] + ".."
+		}
+
+		timeStr := formatTimeAgo(project.LastActivity)
+		line := fmt.Sprintf("%s%s  %s", indicator, projectName, status)
+		detail := fmt.Sprintf("    Sessions: %d  Last: %s", project.SessionCount, timeStr)
+
+		lines = append(lines, style.Render(line))
+		lines = append(lines, m.styles.Muted.Render(detail))
+		lines = append(lines, "")
+	}
+
+	help := "↑↓: Navigate  Enter: Select  ESC/Q: Quit"
+	lines = append(lines, "", m.styles.Muted.Render(help))
+
+	content := strings.Join(lines, "\n")
+	return m.styles.Border.Render(content)
+}
+
+// renderNoProjects renders the no projects screen
+func (m Model) renderNoProjects() string {
+	title := m.styles.Title.Render("Claude Token Monitor")
+	errorText := m.styles.Muted.Render("No projects found")
+	hint := m.styles.Muted.Render("\n\nMake sure Claude Code is running and you have active conversations.")
+	help := m.styles.Muted.Render("\n\nPress 'r' to retry or 'q' to quit")
+
+	content := lipgloss.JoinVertical(lipgloss.Left, title, "", errorText, hint, help)
+	return m.styles.Border.Render(content)
+}
+
+// formatTimeAgo formats a time as "2m ago", "1h ago", etc.
+func formatTimeAgo(t time.Time) string {
+	duration := time.Since(t)
+	if duration < time.Minute {
+		return "< 1m ago"
+	}
+	if duration < time.Hour {
+		return fmt.Sprintf("%dm ago", int(duration.Minutes()))
+	}
+	if duration < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(duration.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(duration.Hours()/24))
 }

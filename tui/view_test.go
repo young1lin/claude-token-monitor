@@ -51,6 +51,7 @@ func TestViewLoading(t *testing.T) {
 
 func TestViewReady(t *testing.T) {
 	model := NewModel(false)
+	model.viewState = ViewMonitoring
 	model.ready = true
 	model.sessionID = "test-session-id-12345"
 	model.model = "Sonnet 4.5"
@@ -75,6 +76,7 @@ func TestViewReady(t *testing.T) {
 
 func TestViewWithHistory(t *testing.T) {
 	model := NewModel(false)
+	model.viewState = ViewMonitoring
 	model.ready = true
 	model.history = []HistoryEntry{
 		{ID: "1", Timestamp: "2024-01-01 12:00", Tokens: 1000, Cost: 0.01, Project: "test"},

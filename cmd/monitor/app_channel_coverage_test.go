@@ -32,7 +32,7 @@ func TestRunWatchLoopErrorsChannelCloseFirst(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		runWatchLoop(mockSender, testWatcher, db, session, history, false)
+		runWatchLoop(mockSender, testWatcher, db, session, history, false, []tui.ProjectInfo{})
 		done <- true
 	}()
 
@@ -76,7 +76,7 @@ func TestRunWatchLoopLinesChannelCloseFirst(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		runWatchLoop(mockSender, testWatcher, db, session, history, false)
+		runWatchLoop(mockSender, testWatcher, db, session, history, false, []tui.ProjectInfo{})
 		done <- true
 	}()
 
