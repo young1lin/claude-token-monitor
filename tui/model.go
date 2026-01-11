@@ -1,11 +1,30 @@
 package tui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/young1lin/claude-token-monitor/internal/monitor"
 	"github.com/young1lin/claude-token-monitor/internal/ratelimit"
 )
+
+// ViewState represents the current UI view
+type ViewState int
+
+const (
+	ViewProjectSelection ViewState = iota
+	ViewMonitoring
+)
+
+// ProjectInfo contains information about a project
+type ProjectInfo struct {
+	Name              string
+	SessionCount      int
+	LastActivity      time.Time
+	MostRecentSession *monitor.SessionInfo
+}
 
 // Model represents the application state
 type Model struct {
@@ -40,6 +59,11 @@ type Model struct {
 	quitting   bool
 	lastUpdate string
 	singleLine bool
+
+	// View state management
+	viewState       ViewState
+	projects        []ProjectInfo
+	selectedProject int
 
 	// Transcript info (for single-line mode)
 	activeTools    []string
@@ -230,15 +254,18 @@ func DefaultStyles() Styles {
 // NewModel creates a new Model with default values
 func NewModel(singleLine bool) Model {
 	return Model{
-		styles:          DefaultStyles(),
-		ready:           false,
-		history:         make([]HistoryEntry, 0, 10),
-		singleLine:      singleLine,
-		sessions:        make(map[string]*SessionViewState),
-		showSessionList: false,
-		completedTools:  make(map[string]int),
-		activeTools:     make([]string, 0),
-		agents:          make([]AgentInfo, 0),
+		styles:           DefaultStyles(),
+		ready:            false,
+		history:          make([]HistoryEntry, 0, 10),
+		singleLine:       singleLine,
+		sessions:         make(map[string]*SessionViewState),
+		showSessionList:  false,
+		completedTools:   make(map[string]int),
+		activeTools:      make([]string, 0),
+		agents:           make([]AgentInfo, 0),
+		viewState:        ViewProjectSelection,
+		projects:         make([]ProjectInfo, 0),
+		selectedProject:  0,
 	}
 }
 

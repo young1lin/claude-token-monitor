@@ -44,17 +44,12 @@ func ProjectsDir() string {
 
 // ProjectsDirWithPlatform allows injecting a custom platform provider for testing
 func ProjectsDirWithPlatform(platform PlatformProvider) string {
-	// On Windows, session files are stored in ~/.claude/projects
-	// On macOS/Linux, they're in the Claude data directory
-	if platform.GetOS() == "windows" {
-		home, err := platform.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		return filepath.Join(home, ".claude", "projects")
+	// Use ~/.claude/projects for all platforms (consistent with Claude Code)
+	home, err := platform.UserHomeDir()
+	if err != nil {
+		return ""
 	}
-	// For macOS/Linux, use the Claude data directory
-	return filepath.Join(ClaudeDataDirWithPlatform(platform), "projects")
+	return filepath.Join(home, ".claude", "projects")
 }
 
 // UserCacheDir returns the application cache directory for history storage
