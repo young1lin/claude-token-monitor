@@ -145,10 +145,10 @@ type StatusLineInput struct {
 
 // MemoryFilesInfo stores memory files statistics
 type MemoryFilesInfo struct {
-	HasCLAUDEMd bool
-	RulesCount  int
-	MCPCount    int
-	HooksCount  int
+	CLAUDEMdCount int    // Number of CLAUDE.md files found
+	RulesCount    int    // Number of rule files in .claude/rules/
+	MCPCount      int    // Number of MCP servers
+	HooksCount    int    // Number of hooks
 }
 
 func main() {
@@ -802,31 +802,157 @@ func getProjectName(cwd string) string {
 	return ""
 }
 
-// getMemoryFilesInfo scans .claude directory for configuration files
+// getMemoryFilesInfo scans all Claude Code memory file locations
+// Based on official docs: https://code.claude.com/docs/en/memory
+//
+// Memory loading order (by priority):
+// 1. Enterprise policy: C:\Program Files\ClaudeCode\CLAUDE.md (Windows)
+// 2. Project memory: ./CLAUDE.md or ./.claude/CLAUDE.md (recursive up from cwd)
+// 3. Project rules: ./.claude/rules/**/*.md (recursive upward from cwd)
+// 4. User memory: ~/.claude/CLAUDE.md
+// 5. Project memory (local): ./CLAUDE.local.md (recursive up from cwd)
 func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	info := MemoryFilesInfo{}
-	claudeDir := filepath.Join(cwd, ".claude")
 
-	// Check .claude/CLAUDE.md
-	claudeMdPath := filepath.Join(claudeDir, "CLAUDE.md")
-	if _, err := os.Stat(claudeMdPath); err == nil {
-		info.HasCLAUDEMd = true
+	// 1. Check Enterprise policy (Windows) - counts as a CLAUDE.md
+	if runtime.GOOS == "windows" {
+		enterprisePath := filepath.Join("C:", "Program Files", "ClaudeCode", "CLAUDE.md")
+		if _, err := os.Stat(enterprisePath); err == nil {
+			info.CLAUDEMdCount++
+		}
 	}
 
-	// Scan .claude/rules/ directory
-	rulesDir := filepath.Join(claudeDir, "rules")
-	if entries, err := os.ReadDir(rulesDir); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".md") {
-				info.RulesCount++
-			}
+	// 2 & 5. Recursive search for CLAUDE.md and CLAUDE.local.md (upward from cwd)
+	info.CLAUDEMdCount += countClaudeMdUpward(cwd)
+
+	// 3. Scan .claude/rules/ directories (recursive + upward search)
+	info.RulesCount += countRulesUpward(cwd)
+
+	// 4. Check User memory: ~/.claude/CLAUDE.md
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		globalClaudeMd := filepath.Join(homeDir, ".claude", "CLAUDE.md")
+		if _, err := os.Stat(globalClaudeMd); err == nil {
+			info.CLAUDEMdCount++
 		}
+		// Also scan global rules directory recursively
+		globalRulesDir := filepath.Join(homeDir, ".claude", "rules")
+		info.RulesCount += countRulesRecursive(globalRulesDir)
 	}
 
 	// Get MCP count
 	info.MCPCount = getMCPCount(cwd)
 
 	return info
+}
+
+// countRulesUpward searches upward from cwd for .claude/rules/ directories
+// Returns the total count of .md files found in all rules directories
+func countRulesUpward(cwd string) int {
+	totalCount := 0
+	seen := make(map[string]bool) // Avoid counting duplicates
+
+	// Normalize the path
+	cwd = filepath.Clean(cwd)
+
+	// Search upward, but stop at root or after reasonable depth
+	for i := 0; i < 20; i++ {
+		rulesDir := filepath.Join(cwd, ".claude", "rules")
+		if _, err := os.Stat(rulesDir); err == nil {
+			if !seen[rulesDir] {
+				totalCount += countRulesRecursive(rulesDir)
+				seen[rulesDir] = true
+			}
+		}
+
+		// Move to parent directory
+		parent := filepath.Dir(cwd)
+		if parent == cwd || parent == "" {
+			// Reached root or empty path
+			break
+		}
+		cwd = parent
+	}
+
+	return totalCount
+}
+
+// countClaudeMdUpward searches upward from cwd for CLAUDE.md files
+// Returns the count of CLAUDE.md files found
+func countClaudeMdUpward(cwd string) int {
+	count := 0
+	seen := make(map[string]bool) // Avoid counting duplicates
+
+	// Normalize the path
+	cwd = filepath.Clean(cwd)
+
+	// Search upward, but stop at root or after reasonable depth
+	for i := 0; i < 20; i++ {
+		// Check ./CLAUDE.md
+		rootPath := filepath.Join(cwd, "CLAUDE.md")
+		if _, err := os.Stat(rootPath); err == nil {
+			if !seen[rootPath] {
+				count++
+				seen[rootPath] = true
+			}
+		}
+
+		// Check ./.claude/CLAUDE.md
+		claudePath := filepath.Join(cwd, ".claude", "CLAUDE.md")
+		if _, err := os.Stat(claudePath); err == nil {
+			if !seen[claudePath] {
+				count++
+				seen[claudePath] = true
+			}
+		}
+
+		// Check ./CLAUDE.local.md (count as CLAUDE.md)
+		localPath := filepath.Join(cwd, "CLAUDE.local.md")
+		if _, err := os.Stat(localPath); err == nil {
+			if !seen[localPath] {
+				count++
+				seen[localPath] = true
+			}
+		}
+
+		// Move to parent directory
+		parent := filepath.Dir(cwd)
+		if parent == cwd || parent == "" {
+			// Reached root or empty path
+			break
+		}
+		cwd = parent
+	}
+
+	return count
+}
+
+// countRulesRecursive recursively counts .md files in a rules directory
+func countRulesRecursive(rulesDir string) int {
+	count := 0
+
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		return count
+	}
+
+	for _, entry := range entries {
+		// Skip hidden files/directories and non-md files
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			continue
+		}
+
+		if entry.IsDir() {
+			// Recursively scan subdirectories
+			subDir := filepath.Join(rulesDir, name)
+			count += countRulesRecursive(subDir)
+		} else if strings.HasSuffix(name, ".md") {
+			count++
+		}
+	}
+
+	return count
 }
 
 // getMemoryFilesInfoCached returns cached memory files info with 60s TTL
@@ -856,14 +982,18 @@ func getMemoryFilesInfoCached(cwd string) MemoryFilesInfo {
 
 // formatMemoryFilesDisplay formats memory files display text
 func formatMemoryFilesDisplay(info MemoryFilesInfo) string {
-	if !info.HasCLAUDEMd && info.RulesCount == 0 && info.MCPCount == 0 {
+	if info.CLAUDEMdCount == 0 && info.RulesCount == 0 && info.MCPCount == 0 {
 		return "" // No config files, don't display
 	}
 
 	parts := []string{}
 
-	if info.HasCLAUDEMd {
-		parts = append(parts, "CLAUDE.md")
+	if info.CLAUDEMdCount > 0 {
+		if info.CLAUDEMdCount == 1 {
+			parts = append(parts, "CLAUDE.md")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d CLAUDE.md", info.CLAUDEMdCount))
+		}
 	}
 
 	if info.RulesCount > 0 {
