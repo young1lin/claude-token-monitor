@@ -86,10 +86,21 @@ func (w *Watcher) sendExistingData() {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		// Check if watcher is closed before sending
+		select {
+		case <-w.done:
+			return
+		default:
+		}
+
 		line := scanner.Text()
 		// Only send assistant messages (they contain token usage)
 		if parser.IsAssistantMessage([]byte(line)) {
-			w.linesChan <- line
+			select {
+			case <-w.done:
+				return
+			case w.linesChan <- line:
+			}
 		}
 	}
 }
