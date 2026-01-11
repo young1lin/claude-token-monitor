@@ -4,6 +4,16 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/ratelimit"
 )
 
+// ProjectsDiscoveredMsg is sent when projects are discovered
+type ProjectsDiscoveredMsg struct {
+	Projects []ProjectInfo
+}
+
+// ProjectSelectedMsg is sent when user selects a project
+type ProjectSelectedMsg struct {
+	Project ProjectInfo
+}
+
 // TokenUpdateMsg is sent when new token data is available
 type TokenUpdateMsg struct {
 	SessionID    string

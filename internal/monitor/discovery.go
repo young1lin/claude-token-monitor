@@ -26,6 +26,20 @@ type DiscoverResult struct {
 	ErrorCount int
 }
 
+// ProjectInfo contains information about a project for discovery results.
+type ProjectInfo struct {
+	Name              string
+	SessionCount      int
+	LastActivity      time.Time
+	MostRecentSession *SessionInfo
+}
+
+// DiscoverProjectsResult contains the results of project discovery.
+type DiscoverProjectsResult struct {
+	Projects   []*ProjectInfo
+	ErrorCount int
+}
+
 // DiscoverSessions finds all Claude Code sessions in the projects directory.
 func DiscoverSessions(config DiscoverConfig) (*DiscoverResult, error) {
 	result := &DiscoverResult{
@@ -43,17 +57,11 @@ func DiscoverSessions(config DiscoverConfig) (*DiscoverResult, error) {
 			continue
 		}
 
-		// Check for sessions directory in each project
+		// Each project directory contains jsonl files directly (not in a sessions subdirectory)
 		projectDir := filepath.Join(config.ProjectsDir, entry.Name())
-		sessionsDir := filepath.Join(projectDir, "sessions")
 
-		// Check if sessions directory exists
-		if info, err := os.Stat(sessionsDir); err != nil || !info.IsDir() {
-			continue
-		}
-
-		// Find all .jsonl files in sessions directory
-		sessions, err := findSessionFiles(sessionsDir, entry.Name())
+		// Find all .jsonl files directly in project directory
+		sessions, err := findSessionFiles(projectDir, entry.Name())
 		if err != nil {
 			result.ErrorCount++
 			continue
@@ -104,16 +112,14 @@ func findSessionFiles(sessionsDir, project string) ([]*SessionInfo, error) {
 			return nil
 		}
 
-		// Skip empty files or very old files (not active)
+		// Skip empty files
 		if info.Size() == 0 {
 			return nil
 		}
 
-		// Check if file was modified recently (within last hour)
+		// For project selection, show all sessions (not just recent ones)
+		// This ensures all projects appear in the selection list
 		modTime := info.ModTime()
-		if time.Since(modTime) > time.Hour {
-			return nil
-		}
 
 		// Extract session ID from filename
 		sessionID := strings.TrimSuffix(filepath.Base(path), ".jsonl")
@@ -182,4 +188,47 @@ func WatchForNewSessions(projectsDir string, callback func(*SessionInfo)) {
 			}
 		}
 	}
+}
+
+// DiscoverProjects finds all unique projects with Claude Code sessions.
+func DiscoverProjects(config DiscoverConfig) (*DiscoverProjectsResult, error) {
+	// Get all sessions
+	sessionResult, err := DiscoverSessions(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Group sessions by project name
+	projectMap := make(map[string]*ProjectInfo)
+	for _, session := range sessionResult.Sessions {
+		if _, exists := projectMap[session.Project]; !exists {
+			projectMap[session.Project] = &ProjectInfo{
+				Name: session.Project,
+			}
+		}
+		project := projectMap[session.Project]
+		project.SessionCount++
+
+		// Track most recent session
+		if session.LastMod.After(project.LastActivity) {
+			project.LastActivity = session.LastMod
+			project.MostRecentSession = session
+		}
+	}
+
+	// Convert to slice
+	projects := make([]*ProjectInfo, 0, len(projectMap))
+	for _, p := range projectMap {
+		projects = append(projects, p)
+	}
+
+	// Sort by last activity (newest first)
+	sort.Slice(projects, func(i, j int) bool {
+		return projects[i].LastActivity.After(projects[j].LastActivity)
+	})
+
+	return &DiscoverProjectsResult{
+		Projects:   projects,
+		ErrorCount: sessionResult.ErrorCount,
+	}, nil
 }

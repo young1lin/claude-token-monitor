@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TickMsg:
 		m.lastUpdate = msg.Time
 		return m, tickCmd()
+
+	case ProjectsDiscoveredMsg:
+		m.projects = msg.Projects
+		if len(msg.Projects) == 0 {
+			m.ready = true
+			m.err = fmt.Errorf("no projects found")
+		} else if len(msg.Projects) == 1 {
+			// Auto-select single project
+			m.viewState = ViewMonitoring
+			return m, func() tea.Msg {
+				return ProjectSelectedMsg{Project: msg.Projects[0]}
+			}
+		} else {
+			m.viewState = ViewProjectSelection
+			m.selectedProject = 0
+			m.ready = true
+		}
+		return m, nil
+
+	case ProjectSelectedMsg:
+		m.viewState = ViewMonitoring
+		m.project = msg.Project.Name
+		// Reset all monitoring data for fresh start
+		m.sessionID = ""
+		m.model = ""
+		m.inputTokens = 0
+		m.outputTokens = 0
+		m.cacheTokens = 0
+		m.totalTokens = 0
+		m.cost = 0
+		m.contextPct = 0
+		m.gitBranch = ""
+		m.gitStatus = ""
+		m.activeTools = nil
+		m.completedTools = nil
+		m.agents = nil
+		m.todoTotal = 0
+		m.todoCompleted = 0
+		m.ready = false // Show loading while switching
+		// Trigger session discovery for selected project
+		return m, func() tea.Msg {
+			return SessionFoundMsg{
+				SessionID: msg.Project.MostRecentSession.ID,
+				Project:   msg.Project.Name,
+			}
+		}
 
 	case SessionFoundMsg:
 		m.sessionID = msg.SessionID
@@ -109,6 +156,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKeyMsg handles keyboard input
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle project selection keys
+	if m.viewState == ViewProjectSelection {
+		return m.handleProjectSelectionKeys(msg)
+	}
+
+	// Existing monitoring view handlers
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		m.quitting = true
@@ -162,6 +215,50 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle session list visibility
 		return m, func() tea.Msg {
 			return ToggleSessionListMsg{}
+		}
+	}
+
+	return m, nil
+}
+
+// handleProjectSelectionKeys handles keys in project selection view
+func (m Model) handleProjectSelectionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		m.quitting = true
+		return m, tea.Quit
+
+	case "up":
+		if m.selectedProject > 0 {
+			m.selectedProject--
+		}
+		return m, nil
+
+	case "down":
+		if m.selectedProject < len(m.projects)-1 {
+			m.selectedProject++
+		}
+		return m, nil
+
+	case "enter":
+		if m.selectedProject >= 0 && m.selectedProject < len(m.projects) {
+			selected := m.projects[m.selectedProject]
+			return m, func() tea.Msg {
+				return ProjectSelectedMsg{Project: selected}
+			}
+		}
+		return m, nil
+
+	case "esc":
+		m.quitting = true
+		return m, tea.Quit
+
+	case "r":
+		// Retry project discovery
+		return m, func() tea.Msg {
+			// For now, just resend the same projects
+			// In a full implementation, this would trigger a re-discovery
+			return ProjectsDiscoveredMsg{Projects: m.projects}
 		}
 	}
 

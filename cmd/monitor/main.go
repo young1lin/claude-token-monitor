@@ -10,6 +10,7 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/monitor"
 	"github.com/young1lin/claude-token-monitor/internal/store"
 	"github.com/young1lin/claude-token-monitor/internal/update"
+	"github.com/young1lin/claude-token-monitor/tui"
 )
 
 // exitFunc is the function to call for exiting (can be mocked for testing)
@@ -34,9 +35,32 @@ func main() {
 	}()
 
 	if err := run(&AppDependencies{
-		ProjectsDir:    config.ProjectsDir(),
-		SessionFinder:  monitor.FindCurrentSession,
-		DBOpener:       store.Open,
+		ProjectsDir:   config.ProjectsDir(),
+		SessionFinder: func() (*monitor.SessionInfo, error) {
+			return monitor.FindActiveSession(config.ProjectsDir())
+		},
+		ProjectDiscoverer: func() ([]tui.ProjectInfo, error) {
+			result, err := monitor.DiscoverProjects(monitor.DiscoverConfig{
+				ProjectsDir: config.ProjectsDir(),
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			// Convert monitor.ProjectInfo to tui.ProjectInfo
+			projects := make([]tui.ProjectInfo, 0, len(result.Projects))
+			for _, p := range result.Projects {
+				projects = append(projects, tui.ProjectInfo{
+					Name:              p.Name,
+					SessionCount:      p.SessionCount,
+					LastActivity:      p.LastActivity,
+					MostRecentSession: p.MostRecentSession,
+				})
+			}
+
+			return projects, nil
+		},
+		DBOpener: store.Open,
 		WatcherCreator: func(path string) (monitor.WatcherInterface, error) {
 			return monitor.NewWatcher(path)
 		},
@@ -44,7 +68,7 @@ func main() {
 			_, err := p.Run()
 			return err
 		},
-		SingleLine:     true, // 默认单行模式
+		SingleLine: false, // TUI 模式（显示项目选择）
 	}); err != nil {
 		logAndExit(err)
 	}
@@ -53,6 +77,7 @@ func main() {
 func logAndExit(err error) {
 	// This is a separate function to allow testing of error handling
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		exitFunc(1)
 	}
 }

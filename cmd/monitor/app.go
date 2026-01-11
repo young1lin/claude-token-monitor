@@ -23,14 +23,15 @@ type ProgramSender interface {
 
 // AppDependencies contains the dependencies for the main application
 type AppDependencies struct {
-	ProjectsDir    string
-	SessionFinder  func() (*monitor.SessionInfo, error)
-	DBOpener       func(string) (*store.DB, error)
-	WatcherCreator func(string) (monitor.WatcherInterface, error)
-	ProgramRunner  func(*tea.Program) error
-	Stat           func(string) (fs.FileInfo, error)
-	HistoryDBPath  func() string
-	SingleLine     bool
+	ProjectsDir       string
+	SessionFinder     func() (*monitor.SessionInfo, error)
+	ProjectDiscoverer func() ([]tui.ProjectInfo, error)
+	DBOpener          func(string) (*store.DB, error)
+	WatcherCreator    func(string) (monitor.WatcherInterface, error)
+	ProgramRunner     func(*tea.Program) error
+	Stat              func(string) (fs.FileInfo, error)
+	HistoryDBPath     func() string
+	SingleLine        bool
 }
 
 func run(deps *AppDependencies) error {
@@ -46,10 +47,32 @@ func run(deps *AppDependencies) error {
 		return fmt.Errorf("Claude Code data directory not found: %s\n\nPlease make sure Claude Code is installed and has been run at least once", deps.ProjectsDir)
 	}
 
-	// Find current session
-	session, err := deps.SessionFinder()
-	if err != nil {
-		return fmt.Errorf("failed to find active Claude Code session: %v\n\nMake sure Claude Code is running and you have an active conversation", err)
+	// Discover projects first
+	var projects []tui.ProjectInfo
+	var session *monitor.SessionInfo
+	var err error
+
+	if deps.ProjectDiscoverer != nil {
+		projects, err = deps.ProjectDiscoverer()
+		if err != nil {
+			return fmt.Errorf("failed to discover projects: %v", err)
+		}
+	}
+
+	// For single-line mode, auto-select the most recent project
+	// For TUI mode, we'll pass projects to the model and let user select
+	if deps.SingleLine && len(projects) > 0 {
+		if projects[0].MostRecentSession != nil {
+			session = projects[0].MostRecentSession
+		}
+	}
+
+	// If no session selected yet, find it
+	if session == nil {
+		session, err = deps.SessionFinder()
+		if err != nil {
+			return fmt.Errorf("failed to find active Claude Code session: %v\n\nMake sure Claude Code is running and you have an active conversation", err)
+		}
 	}
 
 	// Get database path
@@ -109,7 +132,7 @@ func run(deps *AppDependencies) error {
 
 	// Start goroutine to handle file watching
 	go func() {
-		runWatchLoop(p, watcher, db, session, history, deps.SingleLine)
+		runWatchLoop(p, watcher, db, session, history, deps.SingleLine, projects)
 	}()
 
 	// Run the program
@@ -117,7 +140,10 @@ func run(deps *AppDependencies) error {
 }
 
 // runWatchLoop runs the main watch loop that processes file changes
-func runWatchLoop(sender ProgramSender, watcher monitor.WatcherInterface, db *store.DB, session *monitor.SessionInfo, history []tui.HistoryEntry, singleLine bool) {
+func runWatchLoop(sender ProgramSender, watcher monitor.WatcherInterface, db *store.DB, session *monitor.SessionInfo, history []tui.HistoryEntry, singleLine bool, projects []tui.ProjectInfo) {
+	// Send projects discovered message first
+	sender.Send(tui.ProjectsDiscoveredMsg{Projects: projects})
+
 	// Send initial messages
 	sender.Send(tui.SessionFoundMsg{
 		SessionID: session.ID,
