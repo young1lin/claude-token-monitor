@@ -202,7 +202,7 @@ func TestRunWatchLoopWithValidWatcher(t *testing.T) {
 	// Run runWatchLoop in a goroutine
 	done := make(chan bool)
 	go func() {
-		runWatchLoop(mockSender, testWatcher, db, session, history, false)
+		runWatchLoop(mockSender, testWatcher, db, session, history, false, []tui.ProjectInfo{})
 		done <- true
 	}()
 
@@ -264,7 +264,7 @@ func TestRunWatchLoopWithError(t *testing.T) {
 	// Run runWatchLoop in a goroutine
 	done := make(chan bool)
 	go func() {
-		runWatchLoop(mockSender, testWatcher, db, session, history, false)
+		runWatchLoop(mockSender, testWatcher, db, session, history, false, []tui.ProjectInfo{})
 		done <- true
 	}()
 
@@ -315,7 +315,7 @@ func TestRunWatchLoopWithModelChange(t *testing.T) {
 	// Run runWatchLoop in a goroutine
 	done := make(chan bool)
 	go func() {
-		runWatchLoop(mockSender, testWatcher, db, session, history, false)
+		runWatchLoop(mockSender, testWatcher, db, session, history, false, []tui.ProjectInfo{})
 		done <- true
 	}()
 

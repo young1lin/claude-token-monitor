@@ -41,6 +41,27 @@ tui/                  # Terminal UI (Bubbletea)
 └── messages.go       # Message types
 ```
 
+### Claude Code Data Directory (IMPORTANT)
+
+**All platforms** store Claude Code data in `$HOME/.claude/`:
+
+```
+~/.claude/
+├── projects/           # Session data for all projects
+│   ├── C--Users-...-project1/
+│   │   ├── session-id-1.jsonl
+│   │   └── session-id-2.jsonl
+│   └── C--Users-...-project2/
+│       └── session-id-3.jsonl
+├── settings.json       # Global settings
+├── CLAUDE.md           # Global instructions (if exists)
+└── hooks/              # Global hooks
+```
+
+**Note**: The project directory names are URL-encoded paths (e.g., `C--Users-...-project`).
+
+The `ProjectsDir()` function returns `~/.claude/projects` on **all platforms** (Windows, macOS, Linux).
+
 ## Test Coverage Philosophy
 
 ### Current Coverage: 84.0%
