@@ -1,10 +1,13 @@
 package monitor
 
 import (
+	"bufio"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/young1lin/claude-token-monitor/internal/parser"
 )
 
 // WatcherInterface defines the interface for file watchers
@@ -31,7 +34,7 @@ func NewWatcher(filePath string) (*Watcher, error) {
 		return nil, err
 	}
 
-	// Get initial file offset
+	// Get initial file offset (start from end to only watch new content)
 	offset, err := GetFileOffset(filePath)
 	if err != nil {
 		fsWatcher.Close()
@@ -39,7 +42,17 @@ func NewWatcher(filePath string) (*Watcher, error) {
 	}
 
 	// Watch the directory containing the file
-	dirPath := "." // Could extract dir from filePath
+	// Extract directory from filePath
+	dirPath := "."
+	if lastIndex := len(filePath) - 1; lastIndex > 0 {
+		for i := lastIndex; i >= 0; i-- {
+			if filePath[i] == '/' || filePath[i] == '\\' {
+				dirPath = filePath[:i]
+				break
+			}
+		}
+	}
+
 	if err := fsWatcher.Add(dirPath); err != nil {
 		fsWatcher.Close()
 		return nil, err
@@ -54,9 +67,31 @@ func NewWatcher(filePath string) (*Watcher, error) {
 		done:      make(chan struct{}),
 	}
 
+	// Send existing data to lines channel for initial parsing
+	go w.sendExistingData()
+
 	go w.watch()
 
 	return w, nil
+}
+
+// sendExistingData reads and sends all existing lines from the file
+// This is called once at startup to populate initial token counts
+func (w *Watcher) sendExistingData() {
+	file, err := os.Open(w.filePath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		// Only send assistant messages (they contain token usage)
+		if parser.IsAssistantMessage([]byte(line)) {
+			w.linesChan <- line
+		}
+	}
 }
 
 // watch runs the file watching loop

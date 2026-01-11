@@ -44,7 +44,7 @@ func main() {
 			_, err := p.Run()
 			return err
 		},
-		SingleLine:     true, // 默认单行模式
+		SingleLine:     false, // 完整 TUI 模式（带边框、颜色、多行显示）
 	}); err != nil {
 		logAndExit(err)
 	}
