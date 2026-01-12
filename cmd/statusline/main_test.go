@@ -93,9 +93,7 @@ func TestFormatOutputMultiline(t *testing.T) {
 		TodoCompleted:  3,
 	}
 
-	tracker := NewSimpleTracker()
-
-	lines := formatOutput(input, summary, tracker)
+	lines := formatOutput(input, summary)
 
 	// Should return multiple lines
 	if len(lines) < 2 {
@@ -148,9 +146,8 @@ func TestFormatOutputEmptyData(t *testing.T) {
 	}
 
 	summary := &parser.TranscriptSummary{}
-	tracker := NewSimpleTracker()
 
-	lines := formatOutput(input, summary, tracker)
+	lines := formatOutput(input, summary)
 
 	// Should still return at least 2 lines (model name defaults to "Claude")
 	if len(lines) < 2 {
@@ -313,9 +310,8 @@ func TestFormatOutputWithRealData(t *testing.T) {
 		TodoTotal:      15,
 		TodoCompleted:  8,
 	}
-	tracker := NewSimpleTracker()
 
-	lines := formatOutput(&input, summary, tracker)
+	lines := formatOutput(&input, summary)
 
 	// Should have at least 3 lines
 	if len(lines) < 3 {
