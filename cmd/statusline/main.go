@@ -158,10 +158,6 @@ func main() {
 	// Check for updates in background
 	go checkUpdate()
 
-	// Initialize rate limit tracker
-	tracker := NewSimpleTracker()
-	_ = tracker.Load() // Ignore errors on first run
-
 	// Read all input from stdin
 	inputBytes, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -182,11 +178,6 @@ func main() {
 		return
 	}
 
-	// Record this request in rate limit tracker
-	tokensThisRequest := input.ContextWindow.CurrentUsage.InputTokens +
-		input.ContextWindow.CurrentUsage.OutputTokens
-	_ = tracker.RecordRequest(tokensThisRequest)
-
 	// Parse transcript if available
 	var summary *parser.TranscriptSummary
 	if input.TranscriptPath != "" {
@@ -196,7 +187,7 @@ func main() {
 	}
 
 	// Format and print output
-	lines := formatOutput(&input, summary, tracker)
+	lines := formatOutput(&input, summary)
 
 	// Check if single-line mode is enabled (default is multi-line now)
 	singleLine := os.Getenv("STATUSLINE_SINGLELINE") == "1"
@@ -222,10 +213,10 @@ func trimNullBytes(data []byte) []byte {
 	return result
 }
 
-func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary, tracker *SimpleTracker) []string {
+func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []string {
 	var lines []string
 
-	// Line 1: Project name + Model + Progress bar + Token + Rate limit
+	// Line 1: Project name + Model + Progress bar + Token
 	line1Parts := []string{}
 
 	projectName := getProjectName(input.Cwd)
@@ -273,23 +264,6 @@ func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary, tra
 	progressBar := fmt.Sprintf("[%s%s%s%s]", colorCode, filled, resetCode, empty)
 	tokenInfo := fmt.Sprintf("%s/%dK (%.1f%%)", formatNumber(tokens), maxTokens/1000, pct)
 	line1Parts = append(line1Parts, progressBar+" "+tokenInfo)
-
-	// Rate limit status on line 1
-	reqRem, reqLimit, tokRem, tokLimit := tracker.GetRateLimitStatus()
-	reqPct := float64(reqLimit-reqRem) / float64(reqLimit) * 100
-	tokPct := float64(tokLimit-tokRem) / float64(tokLimit) * 100
-
-	if reqRem < reqLimit || tokRem < tokLimit {
-		var rateLimitColor string
-		if reqPct >= 50 || tokPct >= 50 {
-			rateLimitColor = "\x1b[1;31m" // Red
-		} else if reqPct >= 25 || tokPct >= 25 {
-			rateLimitColor = "\x1b[1;33m" // Yellow
-		} else {
-			rateLimitColor = "\x1b[1;36m" // Cyan
-		}
-		line1Parts = append(line1Parts, fmt.Sprintf("%s⚡ %d/%d req %d%%|%.0fK tk%s", rateLimitColor, reqRem, reqLimit, int(reqPct), float64(tokRem)/1000, resetCode))
-	}
 
 	lines = append(lines, strings.Join(line1Parts, " | "))
 
