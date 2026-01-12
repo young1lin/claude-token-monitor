@@ -345,8 +345,10 @@ func FormatAgentInfo(summary *TranscriptSummary) string {
 
 	if agent.Desc != "" {
 		desc := agent.Desc
-		if len(desc) > 20 {
-			desc = desc[:17] + ".."
+		// Use rune count for proper UTF-8 (Chinese character) handling
+		runes := []rune(desc)
+		if len(runes) > 20 {
+			desc = string(runes[:17]) + ".."
 		}
 		info = fmt.Sprintf("%s: %s", info, desc)
 	}

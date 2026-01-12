@@ -320,8 +320,10 @@ func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []s
 		agentInfo := agent.Type
 		if agent.Desc != "" {
 			desc := agent.Desc
-			if len(desc) > 20 {
-				desc = desc[:17] + ".."
+			// Use rune count for proper UTF-8 (Chinese character) handling
+			runes := []rune(desc)
+			if len(runes) > 20 {
+				desc = string(runes[:17]) + ".."
 			}
 			agentInfo = fmt.Sprintf("%s: %s", agentInfo, desc)
 		}
