@@ -452,7 +452,7 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 	if usage.FiveHour > 0 {
 		resetTime := formatResetTime(usage.FiveHourResetAt)
 		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · 重置 %s", usage.FiveHour, resetTime)
+			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.FiveHour, resetTime)
 		}
 		return fmt.Sprintf("📊 %.0f%%", usage.FiveHour)
 	}
@@ -461,7 +461,7 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 	if usage.SevenDay > 0 {
 		resetTime := formatResetTime(usage.SevenDayResetAt)
 		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · 重置 %s", usage.SevenDay, resetTime)
+			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.SevenDay, resetTime)
 		}
 		return fmt.Sprintf("📊 %.0f%%", usage.SevenDay)
 	}
