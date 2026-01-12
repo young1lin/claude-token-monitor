@@ -264,6 +264,38 @@ go test ./internal/config/...  # Runs only tests for current platform
 
 *Note: config package target is lower due to platform-specific code.
 
+## Building
+
+**IMPORTANT**: Binaries are built to the **current directory**, NOT to a `bin/` subdirectory.
+
+```bash
+# Build statusline plugin (outputs: statusline.exe on Windows, statusline on macOS/Linux)
+go build -o statusline.exe ./cmd/statusline
+
+# Build monitor TUI app (outputs: monitor.exe on Windows, monitor on macOS/Linux)
+go build -o monitor.exe ./cmd/monitor
+
+# Build both at once
+go build -o statusline.exe ./cmd/statusline && go build -o monitor.exe ./cmd/monitor
+```
+
+### Platform-Specific Output
+
+| Platform | Statusline Binary | Monitor Binary |
+|----------|-------------------|----------------|
+| Windows  | `statusline.exe`  | `monitor.exe`  |
+| macOS    | `statusline`      | `monitor`      |
+| Linux    | `statusline`      | `monitor`      |
+
+### Quick Build Command
+
+```bash
+# One command to build everything for current platform
+go build -o statusline$(go env GOEXE) ./cmd/statusline && go build -o monitor$(go env GOEXE) ./cmd/monitor
+```
+
+Note: `go env GOEXE` returns `.exe` on Windows and empty on Unix systems.
+
 ## References
 
 - [Go Testing Bible](https://go.dev/doc/build-cover)
