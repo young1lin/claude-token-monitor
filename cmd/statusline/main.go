@@ -70,6 +70,12 @@ var (
 	usageCacheMu   sync.RWMutex
 	usageCacheTime time.Time
 	usageCacheTTL  = 5 * time.Minute // 5分钟缓存，避免频繁API调用
+
+	// Claude Code version cache
+	claudeVersionCache     string
+	claudeVersionCacheMu   sync.RWMutex
+	claudeVersionCacheTime time.Time
+	claudeVersionCacheTTL  = 5 * time.Minute // 5分钟缓存，避免频繁命令调用
 )
 
 // CredentialsFile represents the Claude credentials file
@@ -264,6 +270,11 @@ func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []s
 	progressBar := fmt.Sprintf("[%s%s%s%s]", colorCode, filled, resetCode, empty)
 	tokenInfo := fmt.Sprintf("%s/%dK (%.1f%%)", formatNumber(tokens), maxTokens/1000, pct)
 	line1Parts = append(line1Parts, progressBar+" "+tokenInfo)
+
+	// Claude Code version
+	if claudeVersion := getClaudeVersionCached(); claudeVersion != "" {
+		line1Parts = append(line1Parts, fmt.Sprintf("v%s", claudeVersion))
+	}
 
 	lines = append(lines, strings.Join(line1Parts, " | "))
 
@@ -981,4 +992,53 @@ func formatMemoryFilesDisplay(info MemoryFilesInfo) string {
 	}
 
 	return "📦 " + strings.Join(parts, " + ")
+}
+
+// getClaudeVersionCached returns cached Claude Code version with 5min TTL
+func getClaudeVersionCached() string {
+	now := time.Now()
+
+	// Try to read from cache
+	claudeVersionCacheMu.RLock()
+	if claudeVersionCache != "" && now.Sub(claudeVersionCacheTime) < claudeVersionCacheTTL {
+		cached := claudeVersionCache
+		claudeVersionCacheMu.RUnlock()
+		return cached
+	}
+	claudeVersionCacheMu.RUnlock()
+
+	// Cache expired or doesn't exist, fetch version
+	version := getClaudeVersion()
+
+	// Update cache (even if empty, to avoid retrying)
+	claudeVersionCacheMu.Lock()
+	claudeVersionCache = version
+	claudeVersionCacheTime = now
+	claudeVersionCacheMu.Unlock()
+
+	return version
+}
+
+// getClaudeVersion fetches Claude Code version by running "claude --version"
+func getClaudeVersion() string {
+	cmd := exec.Command("claude", "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	// Parse version from output like "2.1.9 (Claude Code)" or "claude-code 1.0.0"
+	versionStr := strings.TrimSpace(string(output))
+	// Extract just the version number (e.g., "2.1.9" or "1.0.0") for cleaner display
+	parts := strings.Fields(versionStr)
+	if len(parts) >= 1 {
+		// The first part is usually the version number
+		version := parts[0]
+		// Clean up any extra characters
+		version = strings.TrimPrefix(version, "v")
+		version = strings.TrimPrefix(version, "V")
+		return version
+	}
+
+	return versionStr
 }
