@@ -125,7 +125,7 @@ func TestTimeQuotaComposer_Name(t *testing.T) {
 		{
 			name:     "default composer name",
 			composer: NewTimeQuotaComposer(),
-			want:     "time",
+			want:     "time-quota",
 		},
 		{
 			name:     "time only name",

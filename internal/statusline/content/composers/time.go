@@ -14,7 +14,7 @@ type TimeQuotaComposer struct {
 // NewTimeQuotaComposer creates a new time quota composer with the default format
 func NewTimeQuotaComposer() *TimeQuotaComposer {
 	return &TimeQuotaComposer{
-		composer: content.NewFormatComposer("time", []content.ContentType{
+		composer: content.NewFormatComposer("time-quota", []content.ContentType{
 			content.ContentCurrentTime,
 			content.ContentQuota,
 		}, func(contents map[content.ContentType]string) string {
