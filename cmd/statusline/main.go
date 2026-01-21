@@ -4,19 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"github.com/young1lin/claude-token-monitor/internal/parser"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/render"
 	"github.com/young1lin/claude-token-monitor/internal/update"
 )
 
@@ -31,9 +29,9 @@ var (
 )
 
 const (
-	STD_OUTPUT_HANDLE     = uintptr(-11 & 0xFFFFFFFF)
+	STD_OUTPUT_HANDLE                  = uintptr(-11 & 0xFFFFFFFF)
 	ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
-	CP_UTF8               = 65001
+	CP_UTF8                            = 65001
 )
 
 // initConsole initializes Windows console for UTF-8 and virtual terminal processing
@@ -59,61 +57,7 @@ var (
 	// updateAvailable holds the latest version if an update is available
 	updateAvailable   string
 	updateAvailableMu sync.RWMutex
-
-	// Memory files cache
-	memoryFilesCacheMu   sync.RWMutex
-	memoryFilesCache     *MemoryFilesInfo
-	memoryFilesCacheTime time.Time
-	memoryFilesCacheTTL  = 60 * time.Second // 60秒缓存
-
-	// Usage cache
-	usageCache     *UsageData
-	usageCacheMu   sync.RWMutex
-	usageCacheTime time.Time
-	usageCacheTTL  = 5 * time.Minute // 5分钟缓存，避免频繁API调用
-
-	// Claude Code version cache
-	claudeVersionCache     string
-	claudeVersionCacheMu   sync.RWMutex
-	claudeVersionCacheTime time.Time
-	claudeVersionCacheTTL  = 5 * time.Minute // 5分钟缓存，避免频繁命令调用
-
-	// Git remote status cache
-	gitRemoteCache     *GitRemoteStatus
-	gitRemoteCacheMu   sync.RWMutex
-	gitRemoteCacheTime time.Time
-	gitRemoteCacheTTL  = 30 * time.Second // 30秒缓存，避免频繁 git 命令调用
 )
-
-// CredentialsFile represents the Claude credentials file
-type CredentialsFile struct {
-	ClaudeAiOauth *struct {
-		AccessToken      string `json:"accessToken"`
-		SubscriptionType string `json:"subscriptionType"`
-		ExpiresAt        int64  `json:"expiresAt"`
-	} `json:"claudeAiOauth"`
-}
-
-// UsageApiResponse represents the OAuth usage API response
-type UsageApiResponse struct {
-	FiveHour *struct {
-		Utilization float64 `json:"utilization"`
-		ResetsAt    string  `json:"resets_at"`
-	} `json:"five_hour"`
-	SevenDay *struct {
-		Utilization float64 `json:"utilization"`
-		ResetsAt    string  `json:"resets_at"`
-	} `json:"seven_day"`
-}
-
-// UsageData holds parsed usage information
-type UsageData struct {
-	FiveHour     float64
-	SevenDay     float64
-	FiveHourResetAt time.Time
-	SevenDayResetAt time.Time
-	APIUnavailable bool
-}
 
 // checkUpdate checks for updates in the background
 func checkUpdate() {
@@ -129,46 +73,6 @@ func checkUpdate() {
 		updateAvailable = latest
 		updateAvailableMu.Unlock()
 	}
-}
-
-// StatusLineInput is the input JSON from Claude Code
-type StatusLineInput struct {
-	Model struct {
-		DisplayName string `json:"display_name"`
-		ID          string `json:"id"`
-	} `json:"model"`
-	ContextWindow struct {
-		TotalInputTokens  int `json:"total_input_tokens"`
-		TotalOutputTokens int `json:"total_output_tokens"`
-		ContextWindowSize int `json:"context_window_size"`
-		CurrentUsage      struct {
-			InputTokens            int `json:"input_tokens"`
-			OutputTokens           int `json:"output_tokens"`
-			CacheReadInputTokens   int `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		} `json:"current_usage"`
-	} `json:"context_window"`
-	TranscriptPath string `json:"transcript_path"`
-	Cwd            string `json:"cwd"`
-	Workspace      struct {
-		CurrentDir string `json:"current_dir"`
-		ProjectDir string `json:"project_dir"`
-	} `json:"workspace"`
-}
-
-// MemoryFilesInfo stores memory files statistics
-type MemoryFilesInfo struct {
-	CLAUDEMdCount int    // Number of CLAUDE.md files found
-	RulesCount    int    // Number of rule files in .claude/rules/
-	MCPCount      int    // Number of MCP servers
-	HooksCount    int    // Number of hooks
-}
-
-// GitRemoteStatus stores git remote branch sync status
-type GitRemoteStatus struct {
-	AheadCount  int // Number of local commits not pushed to remote
-	BehindCount int // Number of remote commits not pulled to local
-	HasRemote   bool // Whether the current branch has a remote tracking branch
 }
 
 func main() {
@@ -192,34 +96,59 @@ func main() {
 	}
 
 	// Parse input JSON
-	var input StatusLineInput
+	var input content.StatusLineInput
 	if err := json.Unmarshal(inputBytes, &input); err != nil {
 		fmt.Fprintf(os.Stderr, "JSON parse error: %v\n", err)
 		return
 	}
 
 	// Parse transcript if available
-	var summary *parser.TranscriptSummary
+	var summary *content.TranscriptSummary
 	if input.TranscriptPath != "" {
-		summary, _ = parser.ParseTranscriptLastNLines(input.TranscriptPath, 100)
-	} else {
-		summary = &parser.TranscriptSummary{}
+		parserSummary, _ := parser.ParseTranscriptLastNLines(input.TranscriptPath, 100)
+		if parserSummary != nil {
+			summary = convertToContentSummary(parserSummary)
+		}
+	}
+	if summary == nil {
+		summary = &content.TranscriptSummary{}
 	}
 
-	// Format and print output
-	lines := formatOutput(&input, summary)
+	// === Layer 1: Content Collection ===
+	contentMgr := content.NewManager()
+	registerAllCollectors(contentMgr)
 
-	// Check if single-line mode is enabled (default is multi-line now)
+	// Build content map with combined values
+	contentMap := buildContentMap(contentMgr, &input, summary)
+
+	// === Layer 2: Layout ===
+	gridLayout := layout.DefaultLayout()
+	grid := layout.NewGrid(gridLayout, contentMap)
+
+	// === Layer 3: Render ===
+	tableRenderer := render.NewTableRenderer(grid)
+
+	// Check if single-line mode is enabled
 	singleLine := os.Getenv("STATUSLINE_SINGLELINE") == "1"
 
+	var lines []string
 	if singleLine {
-		// Single-line mode: join all lines with " | "
-		fmt.Println(strings.Join(lines, " | "))
+		lines = []string{tableRenderer.RenderSingleLine()}
 	} else {
-		// Multi-line mode (default): print each line separately
-		for _, line := range lines {
-			fmt.Println(line)
-		}
+		lines = tableRenderer.Render()
+	}
+
+	// Add update indicator if available
+	updateAvailableMu.RLock()
+	latest := updateAvailable
+	updateAvailableMu.RUnlock()
+	if latest != "" {
+		lines = append(lines, fmt.Sprintf("↑ Update available: v%s", latest))
+	}
+
+	// Print output
+	for _, line := range lines {
+		fmt.Println(line)
 	}
 }
 
@@ -233,915 +162,162 @@ func trimNullBytes(data []byte) []byte {
 	return result
 }
 
-func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []string {
-	var lines []string
-
-	// Line 1: Project name + Model + Progress bar + Token
-	line1Parts := []string{}
-
-	projectName := getProjectName(input.Cwd)
-	if projectName != "" {
-		line1Parts = append(line1Parts, fmt.Sprintf("📁 %s", projectName))
+// convertToContentSummary converts parser.TranscriptSummary to content.TranscriptSummary
+func convertToContentSummary(parserSummary *parser.TranscriptSummary) *content.TranscriptSummary {
+	if parserSummary == nil {
+		return nil
 	}
 
-	modelName := input.Model.DisplayName
-	if modelName == "" {
-		modelName = "Claude"
-	}
-	line1Parts = append(line1Parts, fmt.Sprintf("[%s]", modelName))
-
-	// Progress bar - calculate actual context tokens
-	tokens := input.ContextWindow.CurrentUsage.InputTokens +
-		input.ContextWindow.CurrentUsage.CacheReadInputTokens +
-		input.ContextWindow.CurrentUsage.OutputTokens
-	maxTokens := input.ContextWindow.ContextWindowSize
-	if maxTokens == 0 {
-		maxTokens = 200000
-	}
-	pct := float64(tokens) / float64(maxTokens) * 100
-
-	barWidth := 10
-	fillWidth := int(pct / 100 * float64(barWidth))
-	if fillWidth > barWidth {
-		fillWidth = barWidth
-	}
-	filled := strings.Repeat("█", fillWidth)
-	empty := strings.Repeat("░", barWidth-fillWidth)
-
-	// Add colors based on percentage
-	var colorCode, resetCode string
-	resetCode = "\x1b[0m"
-	if pct >= 60 {
-		colorCode = "\x1b[1;31m" // Bold red
-	} else if pct >= 40 {
-		colorCode = "\x1b[1;33m" // Bold yellow
-	} else if pct >= 20 {
-		colorCode = "\x1b[1;36m" // Bold cyan
-	} else {
-		colorCode = "\x1b[1;32m" // Bold green
+	// Convert agents
+	agents := make([]content.AgentInfo, len(parserSummary.Agents))
+	for i, agent := range parserSummary.Agents {
+		agents[i] = content.AgentInfo{
+			Type: agent.Type,
+			Desc: agent.Desc,
+		}
 	}
 
-	progressBar := fmt.Sprintf("[%s%s%s%s]", colorCode, filled, resetCode, empty)
-	tokenInfo := fmt.Sprintf("%s/%dK (%.1f%%)", formatNumber(tokens), maxTokens/1000, pct)
-	line1Parts = append(line1Parts, progressBar+" "+tokenInfo)
+	return &content.TranscriptSummary{
+		GitBranch:      parserSummary.GitBranch,
+		GitStatus:      parserSummary.GitStatus,
+		ActiveTools:    parserSummary.ActiveTools,
+		CompletedTools: parserSummary.CompletedTools,
+		Agents:         agents,
+		TodoTotal:      parserSummary.TodoTotal,
+		TodoCompleted:  parserSummary.TodoCompleted,
+		SessionStart:   parserSummary.SessionStart,
+		SessionEnd:     parserSummary.SessionEnd,
+	}
+}
 
-	// Claude Code version
-	if claudeVersion := getClaudeVersionCached(); claudeVersion != "" {
-		line1Parts = append(line1Parts, fmt.Sprintf("v%s", claudeVersion))
+// registerAllCollectors registers all content collectors
+func registerAllCollectors(mgr *content.Manager) {
+	mgr.RegisterAll(
+		content.NewFolderCollector(),
+		content.NewModelCollector(),
+		content.NewTokenBarCollector(),
+		content.NewTokenInfoCollector(),
+		content.NewClaudeVersionCollector(),
+		content.NewGitBranchCollector(),
+		content.NewGitStatusCollector(),
+		content.NewGitRemoteCollector(),
+		content.NewMemoryFilesCollector(),
+		content.NewAgentCollector(),
+		content.NewTodoCollector(),
+		content.NewToolsCollector(),
+		content.NewSessionDurationCollector(),
+		content.NewCurrentTimeCollector(),
+		content.NewQuotaCollector(),
+	)
+}
+
+// buildContentMap builds the content map with combined values
+// This combines related content types (e.g., model + token bar + token info)
+func buildContentMap(mgr *content.Manager, input *content.StatusLineInput, summary *content.TranscriptSummary) layout.CellContent {
+	// Get individual content pieces
+	folder, _ := mgr.Get(content.ContentFolder, input, summary)
+	model, _ := mgr.Get(content.ContentModel, input, summary)
+	tokenBar, _ := mgr.Get(content.ContentTokenBar, input, summary)
+	tokenInfo, _ := mgr.Get(content.ContentTokenInfo, input, summary)
+	version, _ := mgr.Get(content.ContentClaudeVersion, input, summary)
+
+	gitBranch, _ := mgr.Get(content.ContentGitBranch, input, summary)
+	gitStatus, _ := mgr.Get(content.ContentGitStatus, input, summary)
+	gitRemote, _ := mgr.Get(content.ContentGitRemote, input, summary)
+	memoryFiles, _ := mgr.Get(content.ContentMemoryFiles, input, summary)
+
+	agent, _ := mgr.Get(content.ContentAgent, input, summary)
+	todo, _ := mgr.Get(content.ContentTodo, input, summary)
+	tools, _ := mgr.Get(content.ContentTools, input, summary)
+	sessionDuration, _ := mgr.Get(content.ContentSessionDuration, input, summary)
+
+	currentTime, _ := mgr.Get(content.ContentCurrentTime, input, summary)
+	quota, _ := mgr.Get(content.ContentQuota, input, summary)
+
+	// Build content map with combined values
+	result := make(layout.CellContent)
+
+	// Folder
+	if folder != "" {
+		result["folder"] = "📁 " + folder
 	}
 
-	lines = append(lines, strings.Join(line1Parts, " | "))
+	// Model + Token Bar + Token Info (combined in column 2)
+	modelLine := model
+	if modelLine == "" {
+		modelLine = "Claude"
+	}
+	if tokenBar != "" {
+		modelLine += " " + tokenBar
+	}
+	if tokenInfo != "" {
+		modelLine += " " + tokenInfo
+	}
+	result["model"] = fmt.Sprintf("[%s]", modelLine)
 
-	// Line 2: Git branch + Memory files
-	line2Parts := []string{}
+	// Version
+	if version != "" {
+		result["claude-version"] = "v" + version
+	}
 
-	gitBranch := getGitBranch(input.Cwd)
+	// Git Branch + Status + Remote (combined in column 1, row 1)
+	gitLine := ""
 	if gitBranch != "" {
-		added, deleted, modified := getGitStatus(input.Cwd)
-		remoteStatus := getGitRemoteStatusCached(input.Cwd)
-
-		var statusParts []string
-		if added > 0 {
-			statusParts = append(statusParts, fmt.Sprintf("+%d", added))
-		}
-		if modified > 0 {
-			statusParts = append(statusParts, fmt.Sprintf("~%d", modified))
-		}
-		if deleted > 0 {
-			statusParts = append(statusParts, fmt.Sprintf("-%d", deleted))
-		}
-
-		// Add remote status (ahead/behind)
-		if remoteStatus.HasRemote {
-			if remoteStatus.AheadCount > 0 && remoteStatus.BehindCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("🔄 ↑%d↓%d", remoteStatus.AheadCount, remoteStatus.BehindCount))
-			} else if remoteStatus.AheadCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("🔄 ↑%d", remoteStatus.AheadCount))
-			} else if remoteStatus.BehindCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("🔄 ↓%d", remoteStatus.BehindCount))
-			}
-		}
-
-		if len(statusParts) > 0 {
-			gitInfo := gitBranch + " " + strings.Join(statusParts, " ")
-			line2Parts = append(line2Parts, fmt.Sprintf("🌿 %s", gitInfo))
+		gitLine = fmt.Sprintf("🌿 %s", gitBranch)
+	}
+	if gitStatus != "" {
+		if gitLine != "" {
+			gitLine += " " + gitStatus
 		} else {
-			line2Parts = append(line2Parts, fmt.Sprintf("🌿 %s", gitBranch))
+			gitLine = gitStatus
 		}
 	}
-
-	// Memory files info
-	memoryInfo := getMemoryFilesInfoCached(input.Cwd)
-	memoryDisplay := formatMemoryFilesDisplay(memoryInfo)
-	if memoryDisplay != "" {
-		line2Parts = append(line2Parts, memoryDisplay)
-	}
-
-	if len(line2Parts) > 0 {
-		lines = append(lines, strings.Join(line2Parts, " | "))
-	}
-
-	// Line 3: Agent + Tools + TODO
-	line3Parts := []string{}
-
-	// Tools
-	if len(summary.CompletedTools) > 0 {
-		total := 0
-		for _, count := range summary.CompletedTools {
-			total += count
+	if gitRemote != "" {
+		if gitLine != "" {
+			gitLine += " " + gitRemote
+		} else {
+			gitLine = gitRemote
 		}
-		line3Parts = append(line3Parts, fmt.Sprintf("🔧 %d tools", total))
 	}
+	result["git-branch"] = gitLine
+	result["git-status"] = "" // Already combined above
+	result["git-remote"] = "" // Already combined above
+
+	// Memory files
+	if memoryFiles != "" {
+		result["memory-files"] = memoryFiles
+	}
+
+	// Current time + Quota (combined in column 2, row 1)
+	timeLine := currentTime
+	if quota != "" {
+		if timeLine != "" {
+			timeLine += " | " + quota
+		} else {
+			timeLine = quota
+		}
+	}
+	result["current-time"] = timeLine
 
 	// Agent
-	if len(summary.Agents) > 0 {
-		agent := summary.Agents[len(summary.Agents)-1]
-		agentInfo := agent.Type
-		if agent.Desc != "" {
-			desc := agent.Desc
-			// Use rune count for proper UTF-8 (Chinese character) handling
-			runes := []rune(desc)
-			if len(runes) > 20 {
-				desc = string(runes[:17]) + ".."
-			}
-			agentInfo = fmt.Sprintf("%s: %s", agentInfo, desc)
-		}
-		line3Parts = append(line3Parts, fmt.Sprintf("🤖 %s", agentInfo))
+	if agent != "" {
+		result["agent"] = agent
 	}
 
-	if summary.TodoTotal > 0 {
-		if summary.TodoCompleted == summary.TodoTotal {
-			line3Parts = append(line3Parts, fmt.Sprintf("📋 ✓ %d/%d", summary.TodoCompleted, summary.TodoTotal))
-		} else {
-			line3Parts = append(line3Parts, fmt.Sprintf("📋 %d/%d", summary.TodoCompleted, summary.TodoTotal))
-		}
+	// TODO
+	if todo != "" {
+		result["todo"] = todo
 	}
 
-	if len(line3Parts) > 0 {
-		lines = append(lines, strings.Join(line3Parts, " | "))
-	}
-
-	// Line 5: Current time + Subscription quota + Duration
-	line5Parts := []string{}
-
-	// Current time (year-month-day hour:minute)
-	line5Parts = append(line5Parts, fmt.Sprintf("🕐 %s", time.Now().Format("2006-01-02 15:04")))
-
-	// Subscription quota (for Pro/Max users, not API users)
-	if quota := getSubscriptionQuota(input); quota != "" {
-		line5Parts = append(line5Parts, quota)
+	// Tools
+	if tools != "" {
+		result["tools"] = tools
 	}
 
 	// Session duration
-	if !summary.SessionStart.IsZero() {
-		var duration time.Duration
-		if !summary.SessionEnd.IsZero() {
-			duration = summary.SessionEnd.Sub(summary.SessionStart)
-		} else {
-			duration = time.Since(summary.SessionStart)
-		}
-		line5Parts = append(line5Parts, fmt.Sprintf("⏱️ %s", formatDuration(duration)))
+	if sessionDuration != "" {
+		result["session-duration"] = sessionDuration
 	}
 
-	if len(line5Parts) > 0 {
-		lines = append(lines, strings.Join(line5Parts, " | "))
-	}
-
-	// Update indicator (separate line if present)
-	updateAvailableMu.RLock()
-	latest := updateAvailable
-	updateAvailableMu.RUnlock()
-	if latest != "" {
-		lines = append(lines, fmt.Sprintf("↑ Update available: v%s", latest))
-	}
-
-	return lines
-}
-
-func formatNumber(n int) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
-	case n >= 1_000:
-		return fmt.Sprintf("%.1fK", float64(n)/1_000)
-	default:
-		return fmt.Sprintf("%d", n)
-	}
-}
-
-// formatDuration formats a duration as a human-readable string
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	} else if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	} else {
-		h := int(d.Hours())
-		m := int(d.Minutes()) % 60
-		return fmt.Sprintf("%dh%dm", h, m)
-	}
-}
-
-// getMCPCount reads and parses MCP servers configuration
-func getMCPCount(cwd string) int {
-	count := 0
-
-	// Method 1: Check .claude/mcp_servers.json
-	mcpPath := filepath.Join(cwd, ".claude", "mcp_servers.json")
-	if data, err := os.ReadFile(mcpPath); err == nil {
-		var mcpServers map[string]interface{}
-		if err := json.Unmarshal(data, &mcpServers); err == nil {
-			if servers, ok := mcpServers["mcpServers"].([]interface{}); ok {
-				count = len(servers)
-			} else if len(mcpServers) > 0 {
-				count = len(mcpServers)
-			}
-		}
-	}
-
-	// Method 2: Check ~/.claude/settings.json for mcpServers
-	if count == 0 {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
-			if data, err := os.ReadFile(settingsPath); err == nil {
-				var settings map[string]interface{}
-				if err := json.Unmarshal(data, &settings); err == nil {
-					if mcpServers, ok := settings["mcpServers"].(map[string]interface{}); ok {
-						count = len(mcpServers)
-					}
-				}
-			}
-		}
-	}
-
-	return count
-}
-
-// getSubscriptionQuota returns the subscription quota usage percentage with reset time
-func getSubscriptionQuota(input *StatusLineInput) string {
-	usage := getSubscriptionUsage()
-
-	// API user or no data available
-	if usage == nil {
-		return ""
-	}
-
-	// Show 5-hour usage (more relevant for daily usage)
-	if usage.FiveHour > 0 {
-		resetTime := formatResetTime(usage.FiveHourResetAt)
-		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.FiveHour, resetTime)
-		}
-		return fmt.Sprintf("📊 %.0f%%", usage.FiveHour)
-	}
-
-	// Fallback to 7-day usage
-	if usage.SevenDay > 0 {
-		resetTime := formatResetTime(usage.SevenDayResetAt)
-		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.SevenDay, resetTime)
-		}
-		return fmt.Sprintf("📊 %.0f%%", usage.SevenDay)
-	}
-
-	return ""
-}
-
-// formatResetTime formats the reset time in local timezone with timezone name (e.g., "19:00 (Asia/Shanghai)")
-func formatResetTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	// Convert to local timezone
-	local := t.Local()
-	timeStr := local.Format("15:04") // HH:MM format in 24-hour
-
-	// Try to get IANA timezone name
-	zoneName := getLocalTimeZoneName()
-
-	return fmt.Sprintf("%s (%s)", timeStr, zoneName)
-}
-
-// getLocalTimeZoneName attempts to get the IANA timezone name (e.g., "Asia/Shanghai")
-func getLocalTimeZoneName() string {
-	// Method 1: Check TZ environment variable (Linux/Mac/Unix)
-	if tz := os.Getenv("TZ"); tz != "" {
-		// TZ might be like "Asia/Shanghai" or ":Asia/Shanghai"
-		return strings.TrimPrefix(tz, ":")
-	}
-
-	// Method 2: Try to read from /etc/localtime symlink (Linux/Mac)
-	// The symlink usually points to /usr/share/zoneinfo/Area/Location
-	if linkTarget, err := os.Readlink("/etc/localtime"); err == nil {
-		// Extract timezone from path like "/usr/share/zoneinfo/Asia/Shanghai"
-		if idx := strings.LastIndex(linkTarget, "zoneinfo/"); idx >= 0 {
-			return linkTarget[idx+9:] // Skip "zoneinfo/"
-		}
-	}
-
-	// Method 3: Fallback to UTC offset format
-	_, zoneOffset := time.Now().Zone()
-	if zoneOffset == 0 {
-		return "UTC"
-	}
-
-	sign := "+"
-	if zoneOffset < 0 {
-		sign = "-"
-		zoneOffset = -zoneOffset
-	}
-	zoneHours := zoneOffset / 3600
-	zoneMinutes := (zoneOffset % 3600) / 60
-
-	if zoneMinutes == 0 {
-		return fmt.Sprintf("UTC%s%d", sign, zoneHours)
-	}
-	return fmt.Sprintf("UTC%s%d:%02d", sign, zoneHours, zoneMinutes)
-}
-
-// getSubscriptionUsage fetches subscription usage from Claude OAuth API
-// Returns nil for API users (no OAuth credentials) or on error
-func getSubscriptionUsage() *UsageData {
-	now := time.Now()
-
-	// Check cache
-	usageCacheMu.RLock()
-	if usageCache != nil && now.Sub(usageCacheTime) < usageCacheTTL {
-		cached := *usageCache
-		usageCacheMu.RUnlock()
-		return &cached
-	}
-	usageCacheMu.RUnlock()
-
-	// Read credentials from ~/.claude/.credentials.json
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-
-	credPath := filepath.Join(homeDir, ".claude", ".credentials.json")
-	credData, err := os.ReadFile(credPath)
-	if err != nil {
-		return nil // No credentials file = API user
-	}
-
-	var creds CredentialsFile
-	if err := json.Unmarshal(credData, &creds); err != nil {
-		return nil
-	}
-
-	if creds.ClaudeAiOauth == nil || creds.ClaudeAiOauth.AccessToken == "" {
-		return nil // API user
-	}
-
-	// Check if token is expired
-	if creds.ClaudeAiOauth.ExpiresAt > 0 && creds.ClaudeAiOauth.ExpiresAt < now.UnixMilli() {
-		return nil // Token expired
-	}
-
-	// Check subscription type - skip for API users
-	subType := strings.ToLower(creds.ClaudeAiOauth.SubscriptionType)
-	if subType == "" || strings.Contains(subType, "api") {
-		return nil
-	}
-
-	// Fetch usage from API
-	usage, err := fetchUsageAPI(creds.ClaudeAiOauth.AccessToken)
-	if err != nil || usage == nil {
-		// Cache the failure to prevent retry storms
-		usageCacheMu.Lock()
-		usageCache = &UsageData{APIUnavailable: true}
-		usageCacheTime = now
-		usageCacheMu.Unlock()
-		return nil
-	}
-
-	// Update cache
-	usageCacheMu.Lock()
-	usageCache = usage
-	usageCacheTime = now
-	usageCacheMu.Unlock()
-
-	return usage
-}
-
-// fetchUsageAPI calls the Claude OAuth usage API
-func fetchUsageAPI(accessToken string) (*UsageData, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-
-	req, err := http.NewRequest("GET", "https://api.anthropic.com/api/oauth/usage", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-	req.Header.Set("User-Agent", "claude-token-monitor/1.0")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
-	}
-
-	var apiResp UsageApiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, err
-	}
-
-	usage := &UsageData{}
-
-	// Parse 5-hour usage
-	if apiResp.FiveHour != nil {
-		usage.FiveHour = apiResp.FiveHour.Utilization
-		if apiResp.FiveHour.ResetsAt != "" {
-			usage.FiveHourResetAt, _ = time.Parse(time.RFC3339, apiResp.FiveHour.ResetsAt)
-		}
-	}
-
-	// Parse 7-day usage
-	if apiResp.SevenDay != nil {
-		usage.SevenDay = apiResp.SevenDay.Utilization
-		if apiResp.SevenDay.ResetsAt != "" {
-			usage.SevenDayResetAt, _ = time.Parse(time.RFC3339, apiResp.SevenDay.ResetsAt)
-		}
-	}
-
-	return usage, nil
-}
-
-// getGitBranch reads the current git branch using git command
-// Tries multiple methods to handle edge cases like:
-// - Freshly initialized repo (no commits yet)
-// - Detached HEAD state
-// - Different git versions
-func getGitBranch(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-
-	// Method 1: Try git symbolic-ref --short HEAD (most reliable for active branches)
-	// This works for normal branch checkouts and shows the branch name
-	// even if there are no commits yet
-	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
-	if err == nil {
-		branch := strings.TrimSpace(string(output))
-		if branch != "" && branch != "HEAD" {
-			return branch
-		}
-	}
-
-	// Method 2: Try git rev-parse --abbrev-ref HEAD (fallback)
-	// This returns "HEAD" for detached HEAD state or fresh repos
-	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = cwd
-	output, err = cmd.Output()
-	if err == nil {
-		branch := strings.TrimSpace(string(output))
-		// For freshly initialized repos with no commits, show "(no commits)"
-		// For detached HEAD, show the commit abbreviation
-		if branch == "" || branch == "HEAD" {
-			// Check if this is a fresh repo (exists but no commits)
-			cmd = exec.Command("git", "status", "--porcelain")
-			cmd.Dir = cwd
-			_, err = cmd.Output()
-			if err == nil {
-				// Git repo exists but might be empty
-				// Try to get the default branch name
-				cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "origin/HEAD")
-				cmd.Dir = cwd
-				output, err = cmd.Output()
-				if err == nil {
-					remoteBranch := strings.TrimSpace(string(output))
-					if strings.HasPrefix(remoteBranch, "origin/") {
-						return strings.TrimPrefix(remoteBranch, "origin/")
-					}
-				}
-				// Show a hint for empty repo
-				return "(empty)"
-			}
-			return ""
-		}
-		return branch
-	}
-
-	return ""
-}
-
-// getGitStatus returns added, deleted, modified file counts
-func getGitStatus(cwd string) (int, int, int) {
-	if cwd == "" {
-		return 0, 0, 0
-	}
-
-	cmd := exec.Command("git", "status", "--porcelain", "--untracked-files=all")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, 0, 0
-	}
-
-	lines := strings.Split(string(output), "\n")
-	added, deleted, modified := 0, 0, 0
-
-	for _, line := range lines {
-		if len(line) < 2 {
-			continue
-		}
-		xy := line[:2]
-		x := xy[0]
-		y := xy[1]
-
-		// ?? = untracked (added)
-		if x == '?' && y == '?' {
-			added++
-			continue
-		}
-
-		// Check staged changes (x)
-		switch x {
-		case 'A': // added
-			added++
-		case 'M': // modified
-			modified++
-		case 'D': // deleted
-			deleted++
-		}
-
-		// Check unstaged changes (y), but don't double count
-		if x == ' ' {
-			switch y {
-			case 'M': // modified
-				modified++
-			case 'D': // deleted
-				deleted++
-			}
-		}
-	}
-
-	return added, deleted, modified
-}
-
-// getGitRemoteStatus returns the remote branch sync status
-// Returns ahead count (local commits not pushed), behind count (remote commits not pulled)
-func getGitRemoteStatus(cwd string) *GitRemoteStatus {
-	if cwd == "" {
-		return &GitRemoteStatus{HasRemote: false}
-	}
-
-	// Check if current branch has a remote tracking branch
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
-	if err != nil {
-		// No remote tracking branch
-		return &GitRemoteStatus{HasRemote: false}
-	}
-
-	remoteBranch := strings.TrimSpace(string(output))
-	if remoteBranch == "" || remoteBranch == "@{u}" {
-		return &GitRemoteStatus{HasRemote: false}
-	}
-
-	// Use git rev-list --left-right --count to get ahead/behind counts
-	// The output is "<count>\t>count" where:
-	// - <count = commits from HEAD not in @{u} (ahead)
-	// - >count = commits from @{u} not in HEAD (behind)
-	// Example: "1\t0" means 1 ahead, 0 behind
-	cmd = exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
-	cmd.Dir = cwd
-	output, err = cmd.Output()
-	if err != nil {
-		return &GitRemoteStatus{HasRemote: true, AheadCount: 0, BehindCount: 0}
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
-	status := &GitRemoteStatus{HasRemote: true}
-
-	if len(parts) == 2 {
-		// First number is ahead count (commits from HEAD not in remote)
-		if ahead, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
-			status.AheadCount = ahead
-		}
-		// Second number is behind count (commits from remote not in HEAD)
-		if behind, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
-			status.BehindCount = behind
-		}
-	}
-
-	return status
-}
-
-// getGitRemoteStatusCached returns cached git remote status with 30s TTL
-func getGitRemoteStatusCached(cwd string) *GitRemoteStatus {
-	now := time.Now()
-
-	// Try to read from cache
-	gitRemoteCacheMu.RLock()
-	if gitRemoteCache != nil && now.Sub(gitRemoteCacheTime) < gitRemoteCacheTTL {
-		cached := *gitRemoteCache
-		gitRemoteCacheMu.RUnlock()
-		return &cached
-	}
-	gitRemoteCacheMu.RUnlock()
-
-	// Cache expired or doesn't exist, fetch status
-	status := getGitRemoteStatus(cwd)
-
-	// Update cache
-	gitRemoteCacheMu.Lock()
-	gitRemoteCache = status
-	gitRemoteCacheTime = now
-	gitRemoteCacheMu.Unlock()
-
-	return status
-}
-
-// getProjectName extracts the project folder name
-func getProjectName(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-
-	// Get the last part of the path
-	parts := strings.Split(cwd, "\\")
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		if len(name) > 15 {
-			return name[:12] + ".."
-		}
-		return name
-	}
-
-	parts = strings.Split(cwd, "/")
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		if len(name) > 15 {
-			return name[:12] + ".."
-		}
-		return name
-	}
-
-	return ""
-}
-
-// getMemoryFilesInfo scans all Claude Code memory file locations
-// Based on official docs: https://code.claude.com/docs/en/memory
-//
-// Memory loading order (by priority):
-// 1. Enterprise policy: C:\Program Files\ClaudeCode\CLAUDE.md (Windows)
-// 2. Project memory: ./CLAUDE.md or ./.claude/CLAUDE.md (recursive up from cwd)
-// 3. Project rules: ./.claude/rules/**/*.md (recursive upward from cwd)
-// 4. User memory: ~/.claude/CLAUDE.md
-// 5. Project memory (local): ./CLAUDE.local.md (recursive up from cwd)
-func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
-	info := MemoryFilesInfo{}
-
-	// 1. Check Enterprise policy (Windows) - counts as a CLAUDE.md
-	if runtime.GOOS == "windows" {
-		enterprisePath := filepath.Join("C:", "Program Files", "ClaudeCode", "CLAUDE.md")
-		if _, err := os.Stat(enterprisePath); err == nil {
-			info.CLAUDEMdCount++
-		}
-	}
-
-	// 2 & 5. Recursive search for CLAUDE.md and CLAUDE.local.md (upward from cwd)
-	info.CLAUDEMdCount += countClaudeMdUpward(cwd)
-
-	// 3. Scan .claude/rules/ directories (recursive + upward search)
-	info.RulesCount += countRulesUpward(cwd)
-
-	// 4. Check User memory: ~/.claude/CLAUDE.md
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		globalClaudeMd := filepath.Join(homeDir, ".claude", "CLAUDE.md")
-		if _, err := os.Stat(globalClaudeMd); err == nil {
-			info.CLAUDEMdCount++
-		}
-		// Also scan global rules directory recursively
-		globalRulesDir := filepath.Join(homeDir, ".claude", "rules")
-		info.RulesCount += countRulesRecursive(globalRulesDir)
-	}
-
-	// Get MCP count
-	info.MCPCount = getMCPCount(cwd)
-
-	return info
-}
-
-// countRulesUpward searches upward from cwd for .claude/rules/ directories
-// Returns the total count of .md files found in all rules directories
-func countRulesUpward(cwd string) int {
-	totalCount := 0
-	seen := make(map[string]bool) // Avoid counting duplicates
-
-	// Normalize the path
-	cwd = filepath.Clean(cwd)
-
-	// Search upward, but stop at root or after reasonable depth
-	for i := 0; i < 20; i++ {
-		rulesDir := filepath.Join(cwd, ".claude", "rules")
-		if _, err := os.Stat(rulesDir); err == nil {
-			if !seen[rulesDir] {
-				totalCount += countRulesRecursive(rulesDir)
-				seen[rulesDir] = true
-			}
-		}
-
-		// Move to parent directory
-		parent := filepath.Dir(cwd)
-		if parent == cwd || parent == "" {
-			// Reached root or empty path
-			break
-		}
-		cwd = parent
-	}
-
-	return totalCount
-}
-
-// countClaudeMdUpward searches upward from cwd for CLAUDE.md files
-// Returns the count of CLAUDE.md files found
-func countClaudeMdUpward(cwd string) int {
-	count := 0
-	seen := make(map[string]bool) // Avoid counting duplicates
-
-	// Normalize the path
-	cwd = filepath.Clean(cwd)
-
-	// Search upward, but stop at root or after reasonable depth
-	for i := 0; i < 20; i++ {
-		// Check ./CLAUDE.md
-		rootPath := filepath.Join(cwd, "CLAUDE.md")
-		if _, err := os.Stat(rootPath); err == nil {
-			if !seen[rootPath] {
-				count++
-				seen[rootPath] = true
-			}
-		}
-
-		// Check ./.claude/CLAUDE.md
-		claudePath := filepath.Join(cwd, ".claude", "CLAUDE.md")
-		if _, err := os.Stat(claudePath); err == nil {
-			if !seen[claudePath] {
-				count++
-				seen[claudePath] = true
-			}
-		}
-
-		// Check ./CLAUDE.local.md (count as CLAUDE.md)
-		localPath := filepath.Join(cwd, "CLAUDE.local.md")
-		if _, err := os.Stat(localPath); err == nil {
-			if !seen[localPath] {
-				count++
-				seen[localPath] = true
-			}
-		}
-
-		// Move to parent directory
-		parent := filepath.Dir(cwd)
-		if parent == cwd || parent == "" {
-			// Reached root or empty path
-			break
-		}
-		cwd = parent
-	}
-
-	return count
-}
-
-// countRulesRecursive recursively counts .md files in a rules directory
-func countRulesRecursive(rulesDir string) int {
-	count := 0
-
-	entries, err := os.ReadDir(rulesDir)
-	if err != nil {
-		return count
-	}
-
-	for _, entry := range entries {
-		// Skip hidden files/directories and non-md files
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-			continue
-		}
-
-		if entry.IsDir() {
-			// Recursively scan subdirectories
-			subDir := filepath.Join(rulesDir, name)
-			count += countRulesRecursive(subDir)
-		} else if strings.HasSuffix(name, ".md") {
-			count++
-		}
-	}
-
-	return count
-}
-
-// getMemoryFilesInfoCached returns cached memory files info with 60s TTL
-func getMemoryFilesInfoCached(cwd string) MemoryFilesInfo {
-	now := time.Now()
-
-	// Try to read from cache
-	memoryFilesCacheMu.RLock()
-	if memoryFilesCache != nil && now.Sub(memoryFilesCacheTime) < memoryFilesCacheTTL {
-		cached := *memoryFilesCache
-		memoryFilesCacheMu.RUnlock()
-		return cached
-	}
-	memoryFilesCacheMu.RUnlock()
-
-	// Cache expired or doesn't exist, re-scan
-	info := getMemoryFilesInfo(cwd)
-
-	// Update cache
-	memoryFilesCacheMu.Lock()
-	memoryFilesCache = &info
-	memoryFilesCacheTime = now
-	memoryFilesCacheMu.Unlock()
-
-	return info
-}
-
-// formatMemoryFilesDisplay formats memory files display text
-func formatMemoryFilesDisplay(info MemoryFilesInfo) string {
-	if info.CLAUDEMdCount == 0 && info.RulesCount == 0 && info.MCPCount == 0 {
-		return "" // No config files, don't display
-	}
-
-	parts := []string{}
-
-	if info.CLAUDEMdCount > 0 {
-		if info.CLAUDEMdCount == 1 {
-			parts = append(parts, "CLAUDE.md")
-		} else {
-			parts = append(parts, fmt.Sprintf("%d CLAUDE.md", info.CLAUDEMdCount))
-		}
-	}
-
-	if info.RulesCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d rules", info.RulesCount))
-	}
-
-	if info.MCPCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d MCPs", info.MCPCount))
-	}
-
-	return "📦 " + strings.Join(parts, " + ")
-}
-
-// getClaudeVersionCached returns cached Claude Code version with 5min TTL
-func getClaudeVersionCached() string {
-	now := time.Now()
-
-	// Try to read from cache
-	claudeVersionCacheMu.RLock()
-	if claudeVersionCache != "" && now.Sub(claudeVersionCacheTime) < claudeVersionCacheTTL {
-		cached := claudeVersionCache
-		claudeVersionCacheMu.RUnlock()
-		return cached
-	}
-	claudeVersionCacheMu.RUnlock()
-
-	// Cache expired or doesn't exist, fetch version
-	version := getClaudeVersion()
-
-	// Update cache (even if empty, to avoid retrying)
-	claudeVersionCacheMu.Lock()
-	claudeVersionCache = version
-	claudeVersionCacheTime = now
-	claudeVersionCacheMu.Unlock()
-
-	return version
-}
-
-// getClaudeVersion fetches Claude Code version by running "claude --version"
-func getClaudeVersion() string {
-	cmd := exec.Command("claude", "--version")
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-
-	// Parse version from output like "2.1.9 (Claude Code)" or "claude-code 1.0.0"
-	versionStr := strings.TrimSpace(string(output))
-	// Extract just the version number (e.g., "2.1.9" or "1.0.0") for cleaner display
-	parts := strings.Fields(versionStr)
-	if len(parts) >= 1 {
-		// The first part is usually the version number
-		version := parts[0]
-		// Clean up any extra characters
-		version = strings.TrimPrefix(version, "v")
-		version = strings.TrimPrefix(version, "V")
-		return version
-	}
-
-	return versionStr
+	return result
 }
