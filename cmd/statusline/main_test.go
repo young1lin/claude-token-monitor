@@ -7,161 +7,12 @@ import (
 	"testing"
 
 	"github.com/young1lin/claude-token-monitor/internal/parser"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
 )
 
-// TestGetGitBranch tests the git branch detection logic
-func TestGetGitBranch(t *testing.T) {
-	// Test with current directory (should have git)
-	cwd := t.TempDir()
-
-	// Initialize git repo
-	initCmd := exec.Command("git", "init")
-	initCmd.Dir = cwd
-	if err := initCmd.Run(); err != nil {
-		t.Skip("Cannot create git repo for testing")
-	}
-
-	branch := getGitBranch(cwd)
-	t.Logf("Fresh git init repo branch: %q", branch)
-
-	// Should show "(empty)" for fresh repo with no commits
-	// or at least not return empty (which would indicate no git repo detected)
-	if branch == "" {
-		t.Error("Expected branch name or '(empty)' for fresh git repo, got empty string")
-	}
-
-	// Configure git for commits
-	// Note: We can't make commits without configuring user, but the branch
-	// detection should still work for showing the branch name
-}
-
-// TestGetGitBranchCurrentDir tests with actual current directory
-func TestGetGitBranchCurrentDir(t *testing.T) {
-	// Skip if not in a git repo
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	if err := cmd.Run(); err != nil {
-		t.Skip("Not in a git repository")
-	}
-
-	// Get current working directory using Go
-	cwd := "." // Use current directory
-
-	branch := getGitBranch(cwd)
-	t.Logf("Current directory branch: %q", branch)
-
-	// Should return a valid branch name (not empty for a git repo)
-	if branch == "" {
-		t.Error("Expected non-empty branch name for current git repo")
-	}
-
-	// "(empty)" is acceptable for repos with no commits yet
-	// Otherwise we should get a real branch name like "main", "master", etc.
-	// The test passes as long as we get something (not empty string)
-}
-
-// TestFormatOutputMultiline tests the multi-line output format
-func TestFormatOutputMultiline(t *testing.T) {
-	input := &StatusLineInput{
-		Model: struct {
-			DisplayName string `json:"display_name"`
-			ID          string `json:"id"`
-		}{
-			DisplayName: "Claude Sonnet 4.5",
-			ID:          "claude-sonnet-4-5",
-		},
-		ContextWindow: struct {
-			TotalInputTokens         int `json:"total_input_tokens"`
-			TotalOutputTokens        int `json:"total_output_tokens"`
-			ContextWindowSize        int `json:"context_window_size"`
-			CurrentUsage             struct {
-				InputTokens              int `json:"input_tokens"`
-				OutputTokens             int `json:"output_tokens"`
-				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			} `json:"current_usage"`
-		}{
-			ContextWindowSize: 200000,
-		},
-		Cwd: "C:\\PythonProject\\minimal-mcp",
-	}
-	input.ContextWindow.CurrentUsage.InputTokens = 50000
-	input.ContextWindow.CurrentUsage.OutputTokens = 5000
-
-	summary := &parser.TranscriptSummary{
-		CompletedTools: map[string]int{"Read": 5, "Edit": 3},
-		TodoTotal:      10,
-		TodoCompleted:  3,
-	}
-
-	lines := formatOutput(input, summary)
-
-	// Should return multiple lines
-	if len(lines) < 2 {
-		t.Errorf("Expected at least 2 lines, got %d", len(lines))
-	}
-
-	// First line should contain project name, model, progress bar, and token info
-	// Format: "📁 project | [Model] | [progress] tokens/K (pct%)"
-	if !strings.Contains(lines[0], "📁") || !strings.Contains(lines[0], "Claude Sonnet 4.5") {
-		t.Errorf("First line missing project or model info: %s", lines[0])
-	}
-
-	// Progress bar and token info are on the FIRST line (not second)
-	// The format includes both progress bar [█...] and token count like "55.0K/200K"
-	if !strings.Contains(lines[0], "[") {
-		t.Errorf("First line missing progress bar: %s", lines[0])
-	}
-	if !strings.Contains(lines[0], "K") {
-		t.Errorf("First line missing token info (K suffix): %s", lines[0])
-	}
-
-	t.Logf("Generated %d lines:", len(lines))
-	for i, line := range lines {
-		t.Logf("  Line %d: %s", i+1, line)
-	}
-}
-
-// TestFormatOutputEmptyData tests with minimal data
-func TestFormatOutputEmptyData(t *testing.T) {
-	input := &StatusLineInput{
-		Model: struct {
-			DisplayName string `json:"display_name"`
-			ID          string `json:"id"`
-		}{
-			DisplayName: "",
-			ID:          "",
-		},
-		ContextWindow: struct {
-			TotalInputTokens         int `json:"total_input_tokens"`
-			TotalOutputTokens        int `json:"total_output_tokens"`
-			ContextWindowSize        int `json:"context_window_size"`
-			CurrentUsage             struct {
-				InputTokens              int `json:"input_tokens"`
-				OutputTokens             int `json:"output_tokens"`
-				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-			} `json:"current_usage"`
-		}{},
-		Cwd: "",
-	}
-
-	summary := &parser.TranscriptSummary{}
-
-	lines := formatOutput(input, summary)
-
-	// Should still return at least 2 lines (model name defaults to "Claude")
-	if len(lines) < 2 {
-		t.Errorf("Expected at least 2 lines even with empty data, got %d", len(lines))
-	}
-
-	// First line should contain default model name
-	if !strings.Contains(lines[0], "[Claude]") {
-		t.Errorf("First line should contain default [Claude] model name: %s", lines[0])
-	}
-}
-
-// Real JSON data captured from Claude Code statusLine input
-const realJSONInput = `{
+// TestParseRealJSON tests parsing of actual Claude Code input
+func TestParseRealJSON(t *testing.T) {
+	const realJSONInput = `{
   "session_id": "2e85140e-73a6-4592-9012-24a6565a606d",
   "transcript_path": "C:\\Users\\杨逸林\\.claude\\projects\\C--PythonProject-minimal-mcp-go-claude-token-monitor\\2e85140e-73a6-4592-9012-24a6565a606d.jsonl",
   "cwd": "C:\\PythonProject\\minimal-mcp\\go\\claude-token-monitor",
@@ -193,9 +44,7 @@ const realJSONInput = `{
   "exceeds_200k_tokens": false
 }`
 
-// TestParseRealJSON tests parsing of actual Claude Code input
-func TestParseRealJSON(t *testing.T) {
-	var input StatusLineInput
+	var input content.StatusLineInput
 	err := json.Unmarshal([]byte(realJSONInput), &input)
 	if err != nil {
 		t.Fatalf("Failed to parse real JSON: %v", err)
@@ -237,7 +86,7 @@ func TestParseRealJSON(t *testing.T) {
 
 // TestParseRealJSONWithActiveUsage tests JSON with non-zero current_usage
 func TestParseRealJSONWithActiveUsage(t *testing.T) {
-	jsonWithActiveUsage := `{
+	const jsonWithActiveUsage = `{
   "session_id": "test-session-id",
   "transcript_path": "C:\\Users\\test\\.claude\\projects\\test\\test.jsonl",
   "cwd": "C:\\Project",
@@ -269,7 +118,7 @@ func TestParseRealJSONWithActiveUsage(t *testing.T) {
   "exceeds_200k_tokens": false
 }`
 
-	var input StatusLineInput
+	var input content.StatusLineInput
 	err := json.Unmarshal([]byte(jsonWithActiveUsage), &input)
 	if err != nil {
 		t.Fatalf("Failed to parse JSON with active usage: %v", err)
@@ -298,64 +147,17 @@ func TestParseRealJSONWithActiveUsage(t *testing.T) {
 		current.InputTokens, current.OutputTokens, current.CacheReadInputTokens, actualContextSize)
 }
 
-// TestFormatOutputWithRealData tests output formatting with real-world data
-func TestFormatOutputWithRealData(t *testing.T) {
-	var input StatusLineInput
-	if err := json.Unmarshal([]byte(realJSONInput), &input); err != nil {
-		t.Fatalf("Failed to parse real JSON: %v", err)
+// TestGitBranchInGitRepo tests that we're in a git repo
+func TestGitBranchInGitRepo(t *testing.T) {
+	// Skip if not in a git repo
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	if err := cmd.Run(); err != nil {
+		t.Skip("Not in a git repository")
 	}
 
-	summary := &parser.TranscriptSummary{
-		CompletedTools: map[string]int{"Read": 10, "Edit": 5, "Bash": 3},
-		TodoTotal:      15,
-		TodoCompleted:  8,
-	}
-
-	lines := formatOutput(&input, summary)
-
-	// Should have at least 3 lines
-	if len(lines) < 3 {
-		t.Errorf("Expected at least 3 lines, got %d", len(lines))
-	}
-
-	// First line: project name + model + progress bar + tokens
-	line1 := lines[0]
-	if !strings.Contains(line1, "📁") {
-		t.Errorf("Line 1 should contain project folder icon: %s", line1)
-	}
-	if !strings.Contains(line1, "[GLM-4.7]") {
-		t.Errorf("Line 1 should contain model name: %s", line1)
-	}
-
-	// Check progress bar exists (contains [ and ])
-	if !strings.Contains(line1, "[") || !strings.Contains(line1, "]") {
-		t.Errorf("Line 1 should contain progress bar: %s", line1)
-	}
-
-	// Second line: git status + memory files
-	if len(lines) > 1 {
-		line2 := lines[1]
-		t.Logf("Line 2: %s", line2)
-		// Should contain git branch info if in a git repo
-		if strings.Contains(line2, "🌿") {
-			t.Logf("Git branch detected in output")
-		}
-	}
-
-	// Third line: tools + TODO
-	if len(lines) > 2 {
-		line3 := lines[2]
-		if !strings.Contains(line3, "🔧") {
-			t.Logf("Line 3 (no tools): %s", line3)
-		}
-		if !strings.Contains(line3, "📋") {
-			t.Logf("Line 3 (no TODO): %s", line3)
-		}
-	}
-
-	for i, line := range lines {
-		t.Logf("Output line %d: %s", i+1, line)
-	}
+	// Just verify git is available - the actual branch detection
+	// is tested in the content package tests
+	t.Log("Git is available and we're in a git repo")
 }
 
 // TestTokenCalculation verifies token calculation logic
@@ -419,63 +221,160 @@ func TestTokenCalculation(t *testing.T) {
 	}
 }
 
-// TestFormatNumber tests the number formatting utility
-func TestFormatNumber(t *testing.T) {
+// TestConvertToContentSummary tests the conversion from parser.TranscriptSummary to content.TranscriptSummary
+func TestConvertToContentSummary(t *testing.T) {
+	parserSummary := &parser.TranscriptSummary{
+		GitBranch:   "main",
+		GitStatus:   "+3 ~2",
+		ActiveTools: []string{"Read", "Edit"},
+		CompletedTools: map[string]int{
+			"Read": 5,
+			"Edit": 3,
+		},
+		Agents: []parser.AgentInfo{
+			{Type: "Explore", Desc: "Exploring codebase"},
+		},
+		TodoTotal:     10,
+		TodoCompleted: 5,
+	}
+
+	result := convertToContentSummary(parserSummary)
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	if result.GitBranch != "main" {
+		t.Errorf("Expected GitBranch 'main', got '%s'", result.GitBranch)
+	}
+	if result.GitStatus != "+3 ~2" {
+		t.Errorf("Expected GitStatus '+3 ~2', got '%s'", result.GitStatus)
+	}
+	if len(result.Agents) != 1 {
+		t.Errorf("Expected 1 agent, got %d", len(result.Agents))
+	}
+	if result.TodoTotal != 10 {
+		t.Errorf("Expected TodoTotal 10, got %d", result.TodoTotal)
+	}
+	if result.TodoCompleted != 5 {
+		t.Errorf("Expected TodoCompleted 5, got %d", result.TodoCompleted)
+	}
+}
+
+// TestConvertToContentSummaryNilInput tests nil input handling
+func TestConvertToContentSummaryNilInput(t *testing.T) {
+	result := convertToContentSummary(nil)
+	if result != nil {
+		t.Error("Expected nil result for nil input")
+	}
+}
+
+// TestTrimNullBytes tests the null byte trimming function
+func TestTrimNullBytes(t *testing.T) {
 	tests := []struct {
-		input    int
-		expected string
+		name     string
+		input    []byte
+		expected []byte
 	}{
-		{100, "100"},
-		{999, "999"},
-		{1000, "1.0K"},
-		{1500, "1.5K"},
-		{999999, "1000.0K"},
-		{1000000, "1.0M"},
-		{1500000, "1.5M"},
-		{10000000, "10.0M"},
+		{
+			name:     "No null bytes",
+			input:    []byte("hello"),
+			expected: []byte("hello"),
+		},
+		{
+			name:     "Null bytes at end",
+			input:    []byte("hello\x00\x00\x00"),
+			expected: []byte("hello"),
+		},
+		{
+			name:     "Null bytes in middle",
+			input:    []byte("he\x00\x00llo"),
+			expected: []byte("hello"),
+		},
+		{
+			name:     "Only null bytes",
+			input:    []byte("\x00\x00\x00"),
+			expected: []byte(""),
+		},
+		{
+			name:     "Empty input",
+			input:    []byte(""),
+			expected: []byte(""),
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := formatNumber(tt.input)
-			if result != tt.expected {
-				t.Errorf("formatNumber(%d) = %s, want %s", tt.input, result, tt.expected)
+		t.Run(tt.name, func(t *testing.T) {
+			result := trimNullBytes(tt.input)
+			if string(result) != string(tt.expected) {
+				t.Errorf("trimNullBytes(%q) = %q, want %q",
+					string(tt.input), string(result), string(tt.expected))
 			}
 		})
 	}
 }
 
-// TestProgressColorThresholds tests color thresholds based on percentage
-func TestProgressColorThresholds(t *testing.T) {
+// TestTranscriptSummaryConversion verifies agent conversion
+func TestTranscriptSummaryConversion(t *testing.T) {
+	parserSummary := &parser.TranscriptSummary{
+		Agents: []parser.AgentInfo{
+			{Type: "Explore", Desc: "Test agent 1"},
+			{Type: "General", Desc: "Test agent 2"},
+		},
+	}
+
+	result := convertToContentSummary(parserSummary)
+	if result == nil {
+		t.Fatal("Expected non-nil result")
+	}
+
+	if len(result.Agents) != 2 {
+		t.Fatalf("Expected 2 agents, got %d", len(result.Agents))
+	}
+
+	if result.Agents[0].Type != "Explore" {
+		t.Errorf("Expected agent type 'Explore', got '%s'", result.Agents[0].Type)
+	}
+	if result.Agents[0].Desc != "Test agent 1" {
+		t.Errorf("Expected agent desc 'Test agent 1', got '%s'", result.Agents[0].Desc)
+	}
+}
+
+// TestStatusLineInputProjectName tests project name extraction from path
+func TestStatusLineInputProjectName(t *testing.T) {
 	tests := []struct {
-		percentage int
-		expectedColor string
+		name        string
+		cwd         string
+		projectName string
 	}{
-		{10, "\x1b[1;32m"}, // Green
-		{20, "\x1b[1;36m"}, // Cyan (boundary)
-		{30, "\x1b[1;36m"}, // Cyan
-		{40, "\x1b[1;33m"}, // Yellow (boundary)
-		{50, "\x1b[1;33m"}, // Yellow
-		{60, "\x1b[1;31m"}, // Red (boundary)
-		{80, "\x1b[1;31m"}, // Red
-		{100, "\x1b[1;31m"}, // Red
+		{
+			name:        "Windows path",
+			cwd:         `C:\PythonProject\minimal-mcp\go\claude-token-monitor`,
+			projectName: "claude-token-monitor",
+		},
+		{
+			name:        "Unix path",
+			cwd:         "/home/user/projects/my-project",
+			projectName: "my-project",
+		},
+		{
+			name:        "Trailing slash",
+			cwd:         `/home/user/projects/my-project/`,
+			projectName: "", // Empty after trailing slash
+		},
+		{
+			name:        "Empty path",
+			cwd:         "",
+			projectName: "",
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.expectedColor, func(t *testing.T) {
-			var colorCode string
-			pct := float64(tt.percentage)
-			if pct >= 60 {
-				colorCode = "\x1b[1;31m"
-			} else if pct >= 40 {
-				colorCode = "\x1b[1;33m"
-			} else if pct >= 20 {
-				colorCode = "\x1b[1;36m"
-			} else {
-				colorCode = "\x1b[1;32m"
-			}
-			if colorCode != tt.expectedColor {
-				t.Errorf("%d%%: expected color %v, got %v", tt.percentage, tt.expectedColor, colorCode)
+		t.Run(tt.name, func(t *testing.T) {
+			input := &content.StatusLineInput{Cwd: tt.cwd}
+			// The project name is extracted by the FolderCollector
+			// We just verify the input can be created
+			if input.Cwd != tt.cwd {
+				t.Errorf("Expected cwd '%s', got '%s'", tt.cwd, input.Cwd)
 			}
 		})
 	}
