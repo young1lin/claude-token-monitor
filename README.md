@@ -103,11 +103,13 @@ layout/
 
 **Grid Layout:**
 ```
-Row 0: [Folder] [Model+Token] [Version]
-Row 1: [Git]    [Memory]     [empty]
-Row 2: [Tools]  [empty]      [Duration]
-Row 3: [Time]   [empty]      [empty]
+Row 0: [Folder] [Token]          [Version]
+Row 1: [Git]    [Memory-files]   [Quota]
+Row 2: [Tools]  [Agent]          [Todo+Duration]
+Row 3: [Time-Quota] ...
 ```
+
+**Note**: `Token` = model+token-bar+token-info, `Git` = branch+status+remote, `Time-Quota` = time+quota
 
 #### Layer 3: Render Layer (`internal/statusline/render/`)
 
@@ -183,3 +185,208 @@ manager.Register(content.NewMyCollector())
 ```
 
 No changes needed to rendering logic!
+
+### YAML Configuration
+
+The statusline plugin supports YAML configuration files for customization without code changes.
+
+#### Configuration File Locations
+
+Configuration files are loaded with priority:
+1. **Project-level**: `.claude/statusline.yaml` (highest priority)
+2. **Global**: `~/.claude/statusline.yaml`
+3. **Built-in defaults** (lowest priority)
+
+#### Display Configuration
+
+Control what content is displayed:
+
+```yaml
+# .claude/statusline.yaml
+display:
+  singleLine: false  # Enable single-line mode
+  show:              # Only show these items (if specified)
+    - folder
+    - token
+    - git-branch
+  hide:              # Hide these items (takes priority over show)
+    - claude-version
+    - memory-files
+```
+
+#### Format Configuration
+
+Control formatting options:
+
+```yaml
+format:
+  progressBar: braille  # "braille" or "ascii"
+  timeFormat: 24h       # "12h" or "24h"
+  compact: false        # Enable compact mode
+```
+
+#### Content Composition
+
+The statusline uses **composers** to combine related content types. Built-in composers:
+
+- **`token`** - Combines model + token-bar + token-info → `[GLM-4.7 ███░░░░ 75K/200K]`
+- **`git`** - Combines git-branch + git-status + git-remote → `🌿 main +3 ~2 🔄`
+- **`time-quota`** - Combines current-time + quota → `14:30 | ⚡ 115/120 req`
+
+#### Custom Composers
+
+Define your own composers with custom formats:
+
+```yaml
+content:
+  composers:
+    - name: token-simple
+      input: [model, token-bar]
+      format: "[{{.model}} {{.token-bar}}]"  # Go template syntax
+
+    - name: my-git
+      input: [git-branch, git-status]
+      format: "⎇ {{index . \"git-branch\"}}{{if (index . \"git-status\")}} {{index . \"git-status\"}}{{end}}"
+
+  use:                    # Override default composers
+    token: token-simple    # Use custom composer instead of default
+    git: my-git
+```
+
+**Note**: Use `{{index . "key-name"}}` syntax for keys with hyphens in Go templates.
+
+#### Example: Minimal Configuration
+
+Hide unnecessary items, keep default composers:
+
+```yaml
+display:
+  hide:
+    - claude-version
+    - memory-files
+    - session-duration
+```
+
+**Output:**
+```
+📁 minimal-mcp
+[GLM-4.7 ███░░░░ 75K/200K]
+🌿 main +3 ~2
+🔧 8 tools
+14:30 | ⚡ 115/120 req
+```
+
+#### Example: Custom Token Display
+
+Show only model and progress bar, skip token info:
+
+```yaml
+content:
+  composers:
+    - name: token-simple
+      input: [model, token-bar]
+      format: "[{{.model}} {{.token-bar}}]"
+  use:
+    token: token-simple
+```
+
+**Output:**
+```
+[GLM-4.7 ███░░░░]
+```
+
+#### Example: Single-Line Mode
+
+All content on one line with `|` separators:
+
+```yaml
+display:
+  singleLine: true
+```
+
+**Output:**
+```
+📁 minimal-mcp | [GLM-4.7 ███░░░░ 75K/200K] | 🌿 main +3 ~2 | 🔧 8 tools | 14:30 | ⚡ 115/120 req
+```
+
+### Composer Reference
+
+#### Built-in Composers
+
+| Name | Input Types | Output Format |
+|------|-------------|---------------|
+| `token` | model, token-bar, token-info | `[model bar info]` |
+| `git` | git-branch, git-status, git-remote | `🌿 branch status remote` |
+| `time-quota` | current-time, quota | `time \| quota` |
+
+#### Composer Variants
+
+Use built-in variants via `content.use`:
+
+```yaml
+content:
+  use:
+    token: token-simple     # Model + bar only (need to define)
+    git: git-branch-only    # Branch only (need to define)
+```
+
+Or create your own:
+
+```yaml
+content:
+  composers:
+    - name: model-only
+      input: [model]
+      format: "🤖 {{.model}}"
+
+    - name: git-clean
+      input: [git-branch]
+      format: "⎇ {{index . \"git-branch\"}}"
+
+  use:
+    token: model-only
+    git: git-clean
+```
+
+### Full Example Configuration
+
+```yaml
+# .claude/statusline.yaml
+display:
+  singleLine: false
+  show:
+    - folder
+    - token
+    - git-branch
+    - tools
+  hide:
+    - claude-version
+    - memory-files
+
+format:
+  progressBar: braille
+  timeFormat: 24h
+  compact: false
+
+content:
+  composers:
+    - name: my-token
+      input: [model, token-bar]
+      format: "[{{.model}} {{.token-bar}}]"
+
+    - name: my-git
+      input: [git-branch, git-status]
+      format: "🌿 {{index . \"git-branch\"}}{{if (index . \"git-status\")}} {{index . \"git-status\"}}{{end}}"
+
+  use:
+    token: my-token
+    git: my-git
+```
+
+**Output:**
+```
+📁 minimal-mcp
+[GLM-4.7 ███░░░░]
+🌿 main +3 ~2
+🔧 8 tools
+```

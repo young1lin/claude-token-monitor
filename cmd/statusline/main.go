@@ -12,7 +12,9 @@ import (
 	"unsafe"
 
 	"github.com/young1lin/claude-token-monitor/internal/parser"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/config"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
+	"github.com/young1lin/claude-token-monitor/internal/statusline/content/composers"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/render"
 	"github.com/young1lin/claude-token-monitor/internal/update"
@@ -117,19 +119,37 @@ func main() {
 	// === Layer 1: Content Collection ===
 	contentMgr := content.NewManager()
 	registerAllCollectors(contentMgr)
+	registerAllComposers(contentMgr)
 
-	// Build content map with combined values
-	contentMap := buildContentMap(contentMgr, &input, summary)
+	// Load configuration
+	cfg, err := config.Load(input.Cwd)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	// Build content map using composers
+	contentMap := contentMgr.Compose(&input, summary)
+
+	// Apply folder prefix
+	if folder, ok := contentMap["folder"]; ok && folder != "" {
+		contentMap["folder"] = "📁 " + folder
+	}
+	// Apply version prefix
+	if version, ok := contentMap["claude-version"]; ok && version != "" {
+		contentMap["claude-version"] = "v" + version
+	}
 
 	// === Layer 2: Layout ===
-	gridLayout := layout.DefaultLayout()
+	defaultLayout := layout.DefaultLayout()
+	gridLayout := layout.FilterLayout(defaultLayout, cfg)
 	grid := layout.NewGrid(gridLayout, contentMap)
 
 	// === Layer 3: Render ===
 	tableRenderer := render.NewTableRenderer(grid)
 
 	// Check if single-line mode is enabled
-	singleLine := os.Getenv("STATUSLINE_SINGLELINE") == "1"
+	// Environment variable takes precedence over config file
+	singleLine := os.Getenv("STATUSLINE_SINGLELINE") == "1" || cfg.IsSingleLine()
 
 	var lines []string
 	if singleLine {
@@ -211,113 +231,11 @@ func registerAllCollectors(mgr *content.Manager) {
 	)
 }
 
-// buildContentMap builds the content map with combined values
-// This combines related content types (e.g., model + token bar + token info)
-func buildContentMap(mgr *content.Manager, input *content.StatusLineInput, summary *content.TranscriptSummary) layout.CellContent {
-	// Get individual content pieces
-	folder, _ := mgr.Get(content.ContentFolder, input, summary)
-	model, _ := mgr.Get(content.ContentModel, input, summary)
-	tokenBar, _ := mgr.Get(content.ContentTokenBar, input, summary)
-	tokenInfo, _ := mgr.Get(content.ContentTokenInfo, input, summary)
-	version, _ := mgr.Get(content.ContentClaudeVersion, input, summary)
-
-	gitBranch, _ := mgr.Get(content.ContentGitBranch, input, summary)
-	gitStatus, _ := mgr.Get(content.ContentGitStatus, input, summary)
-	gitRemote, _ := mgr.Get(content.ContentGitRemote, input, summary)
-	memoryFiles, _ := mgr.Get(content.ContentMemoryFiles, input, summary)
-
-	agent, _ := mgr.Get(content.ContentAgent, input, summary)
-	todo, _ := mgr.Get(content.ContentTodo, input, summary)
-	tools, _ := mgr.Get(content.ContentTools, input, summary)
-	sessionDuration, _ := mgr.Get(content.ContentSessionDuration, input, summary)
-
-	currentTime, _ := mgr.Get(content.ContentCurrentTime, input, summary)
-	quota, _ := mgr.Get(content.ContentQuota, input, summary)
-
-	// Build content map with combined values
-	result := make(layout.CellContent)
-
-	// Folder
-	if folder != "" {
-		result["folder"] = "📁 " + folder
-	}
-
-	// Model + Token Bar + Token Info (combined in column 2)
-	modelLine := model
-	if modelLine == "" {
-		modelLine = "Claude"
-	}
-	if tokenBar != "" {
-		modelLine += " " + tokenBar
-	}
-	if tokenInfo != "" {
-		modelLine += " " + tokenInfo
-	}
-	result["model"] = fmt.Sprintf("[%s]", modelLine)
-
-	// Version
-	if version != "" {
-		result["claude-version"] = "v" + version
-	}
-
-	// Git Branch + Status + Remote (combined in column 1, row 1)
-	gitLine := ""
-	if gitBranch != "" {
-		gitLine = fmt.Sprintf("🌿 %s", gitBranch)
-	}
-	if gitStatus != "" {
-		if gitLine != "" {
-			gitLine += " " + gitStatus
-		} else {
-			gitLine = gitStatus
-		}
-	}
-	if gitRemote != "" {
-		if gitLine != "" {
-			gitLine += " " + gitRemote
-		} else {
-			gitLine = gitRemote
-		}
-	}
-	result["git-branch"] = gitLine
-	result["git-status"] = "" // Already combined above
-	result["git-remote"] = "" // Already combined above
-
-	// Memory files
-	if memoryFiles != "" {
-		result["memory-files"] = memoryFiles
-	}
-
-	// Current time + Quota (combined in column 2, row 1)
-	timeLine := currentTime
-	if quota != "" {
-		if timeLine != "" {
-			timeLine += " | " + quota
-		} else {
-			timeLine = quota
-		}
-	}
-	result["current-time"] = timeLine
-
-	// Agent
-	if agent != "" {
-		result["agent"] = agent
-	}
-
-	// TODO
-	if todo != "" {
-		result["todo"] = todo
-	}
-
-	// Tools
-	if tools != "" {
-		result["tools"] = tools
-	}
-
-	// Session duration
-	if sessionDuration != "" {
-		result["session-duration"] = sessionDuration
-	}
-
-	return result
+// registerAllComposers registers all built-in composers
+func registerAllComposers(mgr *content.Manager) {
+	mgr.RegisterComposers(
+		composers.NewTokenComposer(),
+		composers.NewGitComposer(),
+		composers.NewTimeQuotaComposer(),
+	)
 }

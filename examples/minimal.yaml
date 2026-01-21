@@ -1,0 +1,9 @@
+# Minimal StatusLine Configuration
+# Place this file at .claude/statusline.yaml in your project root
+
+# Hide unnecessary items for a cleaner look
+display:
+  hide:
+    - claude-version
+    - memory-files
+    - session-duration

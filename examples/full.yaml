@@ -1,0 +1,59 @@
+# Full StatusLine Configuration Example
+# Place this file at .claude/statusline.yaml in your project root
+
+# Display Configuration
+display:
+  # Multi-line mode (default, shows each content type on separate lines)
+  singleLine: false
+
+  # Only show these specific items
+  show:
+    - folder
+    - token
+    - git-branch
+    - tools
+    - current-time
+
+  # Hide these items (takes priority over show)
+  hide:
+    - claude-version
+    - memory-files
+    - session-duration
+
+# Format Configuration
+format:
+  # Use braille progress bars (smoother appearance)
+  progressBar: braille
+
+  # 24-hour time format
+  timeFormat: 24h
+
+  # Compact mode off (default spacing)
+  compact: false
+
+# Content Composition
+content:
+  # Custom composers for specialized formatting
+  composers:
+    # Simple token display: model + progress bar only
+    - name: token-simple
+      input: [model, token-bar]
+      format: "[{{.model}} {{.token-bar}}]"
+
+    # Git display with branch and status
+    - name: my-git
+      input: [git-branch, git-status]
+      # Note: Use {{index . "key"}} syntax for keys with hyphens
+      format: "🌿 {{index . \"git-branch\"}}{{if (index . \"git-status\")}} {{index . \"git-status\"}}{{end}}"
+
+  # Use custom composers instead of defaults
+  use:
+    token: token-simple
+    git: my-git
+
+# Expected Output:
+# 📁 minimal-mcp
+# [GLM-4.7 ███░░░░]
+# 🌿 main +3 ~2
+# 🔧 8 tools
+# 14:30
