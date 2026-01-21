@@ -314,11 +314,11 @@ func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []s
 		// Add remote status (ahead/behind)
 		if remoteStatus.HasRemote {
 			if remoteStatus.AheadCount > 0 && remoteStatus.BehindCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("↑%d↓%d", remoteStatus.AheadCount, remoteStatus.BehindCount))
+				statusParts = append(statusParts, fmt.Sprintf("🔄 ↑%d↓%d", remoteStatus.AheadCount, remoteStatus.BehindCount))
 			} else if remoteStatus.AheadCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("↑%d", remoteStatus.AheadCount))
+				statusParts = append(statusParts, fmt.Sprintf("🔄 ↑%d", remoteStatus.AheadCount))
 			} else if remoteStatus.BehindCount > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("↓%d", remoteStatus.BehindCount))
+				statusParts = append(statusParts, fmt.Sprintf("🔄 ↓%d", remoteStatus.BehindCount))
 			}
 		}
 
