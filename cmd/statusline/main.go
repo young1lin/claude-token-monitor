@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -76,6 +77,12 @@ var (
 	claudeVersionCacheMu   sync.RWMutex
 	claudeVersionCacheTime time.Time
 	claudeVersionCacheTTL  = 5 * time.Minute // 5分钟缓存，避免频繁命令调用
+
+	// Git remote status cache
+	gitRemoteCache     *GitRemoteStatus
+	gitRemoteCacheMu   sync.RWMutex
+	gitRemoteCacheTime time.Time
+	gitRemoteCacheTTL  = 30 * time.Second // 30秒缓存，避免频繁 git 命令调用
 )
 
 // CredentialsFile represents the Claude credentials file
@@ -155,6 +162,13 @@ type MemoryFilesInfo struct {
 	RulesCount    int    // Number of rule files in .claude/rules/
 	MCPCount      int    // Number of MCP servers
 	HooksCount    int    // Number of hooks
+}
+
+// GitRemoteStatus stores git remote branch sync status
+type GitRemoteStatus struct {
+	AheadCount  int // Number of local commits not pushed to remote
+	BehindCount int // Number of remote commits not pulled to local
+	HasRemote   bool // Whether the current branch has a remote tracking branch
 }
 
 func main() {
@@ -284,17 +298,31 @@ func formatOutput(input *StatusLineInput, summary *parser.TranscriptSummary) []s
 	gitBranch := getGitBranch(input.Cwd)
 	if gitBranch != "" {
 		added, deleted, modified := getGitStatus(input.Cwd)
-		if added > 0 || deleted > 0 || modified > 0 {
-			var statusParts []string
-			if added > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("+%d", added))
+		remoteStatus := getGitRemoteStatusCached(input.Cwd)
+
+		var statusParts []string
+		if added > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("+%d", added))
+		}
+		if modified > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("~%d", modified))
+		}
+		if deleted > 0 {
+			statusParts = append(statusParts, fmt.Sprintf("-%d", deleted))
+		}
+
+		// Add remote status (ahead/behind)
+		if remoteStatus.HasRemote {
+			if remoteStatus.AheadCount > 0 && remoteStatus.BehindCount > 0 {
+				statusParts = append(statusParts, fmt.Sprintf("↑%d↓%d", remoteStatus.AheadCount, remoteStatus.BehindCount))
+			} else if remoteStatus.AheadCount > 0 {
+				statusParts = append(statusParts, fmt.Sprintf("↑%d", remoteStatus.AheadCount))
+			} else if remoteStatus.BehindCount > 0 {
+				statusParts = append(statusParts, fmt.Sprintf("↓%d", remoteStatus.BehindCount))
 			}
-			if modified > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("~%d", modified))
-			}
-			if deleted > 0 {
-				statusParts = append(statusParts, fmt.Sprintf("-%d", deleted))
-			}
+		}
+
+		if len(statusParts) > 0 {
 			gitInfo := gitBranch + " " + strings.Join(statusParts, " ")
 			line2Parts = append(line2Parts, fmt.Sprintf("🌿 %s", gitInfo))
 		} else {
@@ -759,6 +787,81 @@ func getGitStatus(cwd string) (int, int, int) {
 	}
 
 	return added, deleted, modified
+}
+
+// getGitRemoteStatus returns the remote branch sync status
+// Returns ahead count (local commits not pushed), behind count (remote commits not pulled)
+func getGitRemoteStatus(cwd string) *GitRemoteStatus {
+	if cwd == "" {
+		return &GitRemoteStatus{HasRemote: false}
+	}
+
+	// Check if current branch has a remote tracking branch
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	cmd.Dir = cwd
+	output, err := cmd.Output()
+	if err != nil {
+		// No remote tracking branch
+		return &GitRemoteStatus{HasRemote: false}
+	}
+
+	remoteBranch := strings.TrimSpace(string(output))
+	if remoteBranch == "" || remoteBranch == "@{u}" {
+		return &GitRemoteStatus{HasRemote: false}
+	}
+
+	// Use git rev-list --left-right --count to get ahead/behind counts
+	// The output is "<count>\t>count" where:
+	// - <count = commits from HEAD not in @{u} (ahead)
+	// - >count = commits from @{u} not in HEAD (behind)
+	// Example: "1\t0" means 1 ahead, 0 behind
+	cmd = exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
+	cmd.Dir = cwd
+	output, err = cmd.Output()
+	if err != nil {
+		return &GitRemoteStatus{HasRemote: true, AheadCount: 0, BehindCount: 0}
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	status := &GitRemoteStatus{HasRemote: true}
+
+	if len(parts) == 2 {
+		// First number is ahead count (commits from HEAD not in remote)
+		if ahead, err := strconv.Atoi(strings.TrimSpace(parts[0])); err == nil {
+			status.AheadCount = ahead
+		}
+		// Second number is behind count (commits from remote not in HEAD)
+		if behind, err := strconv.Atoi(strings.TrimSpace(parts[1])); err == nil {
+			status.BehindCount = behind
+		}
+	}
+
+	return status
+}
+
+// getGitRemoteStatusCached returns cached git remote status with 30s TTL
+func getGitRemoteStatusCached(cwd string) *GitRemoteStatus {
+	now := time.Now()
+
+	// Try to read from cache
+	gitRemoteCacheMu.RLock()
+	if gitRemoteCache != nil && now.Sub(gitRemoteCacheTime) < gitRemoteCacheTTL {
+		cached := *gitRemoteCache
+		gitRemoteCacheMu.RUnlock()
+		return &cached
+	}
+	gitRemoteCacheMu.RUnlock()
+
+	// Cache expired or doesn't exist, fetch status
+	status := getGitRemoteStatus(cwd)
+
+	// Update cache
+	gitRemoteCacheMu.Lock()
+	gitRemoteCache = status
+	gitRemoteCacheTime = now
+	gitRemoteCacheMu.Unlock()
+
+	return status
 }
 
 // getProjectName extracts the project folder name
