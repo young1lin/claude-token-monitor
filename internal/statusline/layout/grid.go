@@ -3,32 +3,33 @@ package layout
 import "github.com/mattn/go-runewidth"
 
 // DefaultLayout returns the default 4x4 grid layout
+// Uses composed content types for compact display
 // Grid structure:
-//   Row 0: Folder | Model + Token | Version
-//   Row 1: Git + Status | Memory | (empty)
-//   Row 2: Tools | (empty) | Duration
-//   Row 3: Time (always on last row)
+//   Row 0: Folder | Token (composed: model+token-bar+token-info) | Version
+//   Row 1: Git (composed: branch+status+remote) | Memory-files | Quota
+//   Row 2: Tools | Agent | Todo + Session-duration
+//   Row 3: Time-Quota (composed: time+quota) on last row
 func DefaultLayout() *Layout {
 	return &Layout{
 		Cells: []Cell{
 			// Row 0
 			{ContentType: "folder", Position: Position{Row: 0, Col: 0}, Optional: false},
-			{ContentType: "model", Position: Position{Row: 0, Col: 1}, Optional: false},
+			{ContentType: "token", Position: Position{Row: 0, Col: 1}, Optional: false},
 			{ContentType: "claude-version", Position: Position{Row: 0, Col: 2}, Optional: true},
 
 			// Row 1
-			{ContentType: "git-branch", Position: Position{Row: 1, Col: 0}, Optional: false},
-			{ContentType: "git-status", Position: Position{Row: 1, Col: 0}, Optional: false},
-			{ContentType: "git-remote", Position: Position{Row: 1, Col: 0}, Optional: true},
+			{ContentType: "git", Position: Position{Row: 1, Col: 0}, Optional: false},
 			{ContentType: "memory-files", Position: Position{Row: 1, Col: 1}, Optional: true},
+			{ContentType: "quota", Position: Position{Row: 1, Col: 2}, Optional: true},
 
 			// Row 2
 			{ContentType: "tools", Position: Position{Row: 2, Col: 0}, Optional: true},
-			{ContentType: "agent", Position: Position{Row: 2, Col: 2}, Optional: true},
+			{ContentType: "agent", Position: Position{Row: 2, Col: 1}, Optional: true},
+			{ContentType: "todo", Position: Position{Row: 2, Col: 2}, Optional: true},
 			{ContentType: "session-duration", Position: Position{Row: 2, Col: 2}, Optional: true},
 
-			// Row 3 - Time always on last row
-			{ContentType: "current-time", Position: Position{Row: 3, Col: 0}, Optional: false},
+			// Row 3 - Time-Quota always on last row
+			{ContentType: "time-quota", Position: Position{Row: 3, Col: 0}, Optional: false},
 		},
 	}
 }

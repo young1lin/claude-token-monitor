@@ -1,0 +1,61 @@
+# StatusLine Plugin - Example Configuration
+# Copy this file to .claude/statusline.yaml or ~/.claude/statusline.yaml
+
+# Display Configuration
+display:
+  # Enable single-line mode (all content on one line with | separators)
+  singleLine: false
+
+  # Only show these items (if specified, hides all others)
+  # Available: folder, model, token, git-branch, git-status, git-remote,
+  #            claude-version, memory-files, agent, todo, tools,
+  #            session-duration, current-time, quota
+  show:
+    - folder
+    - token
+    - git-branch
+    - tools
+    - current-time
+
+  # Hide these items (takes priority over show list)
+  hide:
+    - claude-version
+    - memory-files
+    - session-duration
+
+# Format Configuration
+format:
+  # Progress bar style: "braille" (default) or "ascii"
+  progressBar: braille
+
+  # Time format: "24h" (default) or "12h"
+  timeFormat: 24h
+
+  # Enable compact mode (removes extra spacing)
+  compact: false
+
+# Content Composition
+content:
+  # Define custom composers
+  composers:
+    # Example: Simple token display (model + progress bar only)
+    - name: token-simple
+      input: [model, token-bar]
+      format: "[{{.model}} {{.token-bar}}]"
+
+    # Example: Git display with custom formatting
+    - name: my-git
+      input: [git-branch, git-status]
+      format: "🌿 {{index . \"git-branch\"}}{{if (index . \"git-status\")}} {{index . \"git-status\"}}{{end}}"
+
+    # Example: Model with emoji prefix
+    - name: model-emoji
+      input: [model]
+      format: "🤖 {{.model}}"
+
+  # Override default composers with custom ones
+  use:
+    # Uncomment to use custom composers instead of defaults
+    # token: token-simple
+    # git: my-git
+    # time: time-only
