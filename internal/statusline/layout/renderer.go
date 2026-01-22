@@ -83,7 +83,13 @@ func (r *Renderer) calculateColumnWidths(rows [][]string) []int {
 		maxWidth := 0
 		for _, row := range rows {
 			if col < len(row) {
-				width := runewidth.StringWidth(row[col])
+				cell := row[col]
+				// For cells containing " | ", only use the part before the separator
+				// This handles composed content like "time-quota" (time | quota)
+				if idx := strings.Index(cell, " | "); idx > 0 {
+					cell = cell[:idx]
+				}
+				width := runewidth.StringWidth(cell)
 				if width > maxWidth {
 					maxWidth = width
 				}
@@ -115,6 +121,15 @@ func (r *Renderer) renderRowWithAlignment(row []string, colWidths []int) string 
 			}
 			parts = append(parts, strings.Repeat(" ", padding))
 			parts = append(parts, " | ")
+		} else if len(row) == 1 && len(colWidths) > 1 {
+			// Single cell row: add padding to align with multi-column rows
+			cellWidth := runewidth.StringWidth(cell)
+			targetWidth := colWidths[0]
+			padding := targetWidth - cellWidth
+			if padding < 0 {
+				padding = 0
+			}
+			parts = append(parts, strings.Repeat(" ", padding))
 		}
 	}
 
