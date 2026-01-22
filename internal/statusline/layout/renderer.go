@@ -44,6 +44,7 @@ func (r *Renderer) Render() []string {
 
 // compactRows removes empty cells and shifts content to the left
 // Returns a 2D slice where each row contains only non-empty cells
+// For cells containing " | ", they are split into multiple cells for proper alignment
 func (r *Renderer) compactRows() [][]string {
 	result := [][]string{}
 
@@ -51,7 +52,14 @@ func (r *Renderer) compactRows() [][]string {
 		nonEmptyCells := []string{}
 		for _, cell := range row.Cells {
 			if cell != "" {
-				nonEmptyCells = append(nonEmptyCells, cell)
+				// Split cells containing " | " into multiple cells
+				// This handles composed content like "time-quota" (time | quota)
+				if strings.Contains(cell, " | ") {
+					parts := strings.Split(cell, " | ")
+					nonEmptyCells = append(nonEmptyCells, parts...)
+				} else {
+					nonEmptyCells = append(nonEmptyCells, cell)
+				}
 			}
 		}
 		// Only add rows that have content
@@ -83,13 +91,7 @@ func (r *Renderer) calculateColumnWidths(rows [][]string) []int {
 		maxWidth := 0
 		for _, row := range rows {
 			if col < len(row) {
-				cell := row[col]
-				// For cells containing " | ", only use the part before the separator
-				// This handles composed content like "time-quota" (time | quota)
-				if idx := strings.Index(cell, " | "); idx > 0 {
-					cell = cell[:idx]
-				}
-				width := runewidth.StringWidth(cell)
+				width := runewidth.StringWidth(row[col])
 				if width > maxWidth {
 					maxWidth = width
 				}
@@ -121,15 +123,6 @@ func (r *Renderer) renderRowWithAlignment(row []string, colWidths []int) string 
 			}
 			parts = append(parts, strings.Repeat(" ", padding))
 			parts = append(parts, " | ")
-		} else if len(row) == 1 && len(colWidths) > 1 {
-			// Single cell row: add padding to align with multi-column rows
-			cellWidth := runewidth.StringWidth(cell)
-			targetWidth := colWidths[0]
-			padding := targetWidth - cellWidth
-			if padding < 0 {
-				padding = 0
-			}
-			parts = append(parts, strings.Repeat(" ", padding))
 		}
 	}
 
