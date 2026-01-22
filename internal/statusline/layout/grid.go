@@ -6,7 +6,7 @@ import "github.com/mattn/go-runewidth"
 // Uses composed content types for compact display
 // Grid structure:
 //   Row 0: Folder | Token (composed: model+token-bar+token-info) | Version
-//   Row 1: Git (composed: branch+status+remote) | Memory-files | Quota
+//   Row 1: Git (composed: branch+status+remote) | Memory-files
 //   Row 2: Tools | Agent | Todo + Session-duration
 //   Row 3: Time-Quota (composed: time+quota) on last row
 func DefaultLayout() *Layout {
@@ -20,7 +20,6 @@ func DefaultLayout() *Layout {
 			// Row 1
 			{ContentType: "git", Position: Position{Row: 1, Col: 0}, Optional: false},
 			{ContentType: "memory-files", Position: Position{Row: 1, Col: 1}, Optional: true},
-			{ContentType: "quota", Position: Position{Row: 1, Col: 2}, Optional: true},
 
 			// Row 2
 			{ContentType: "tools", Position: Position{Row: 2, Col: 0}, Optional: true},
@@ -28,7 +27,7 @@ func DefaultLayout() *Layout {
 			{ContentType: "todo", Position: Position{Row: 2, Col: 2}, Optional: true},
 			{ContentType: "session-duration", Position: Position{Row: 2, Col: 2}, Optional: true},
 
-			// Row 3 - Time-Quota always on last row
+			// Row 3 - Time-Quota always on last row (includes time + quota)
 			{ContentType: "time-quota", Position: Position{Row: 3, Col: 0}, Optional: false},
 		},
 	}
