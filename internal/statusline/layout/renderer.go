@@ -26,7 +26,7 @@ func (r *Renderer) Render() []string {
 		return []string{}
 	}
 
-	// Step 2: Calculate column widths for alignment
+	// Step 2: Calculate column widths for alignment based on compactRows
 	colWidths := r.calculateColumnWidths(compactRows)
 
 	// Step 3: Render each row with alignment
@@ -111,8 +111,10 @@ func (r *Renderer) renderRowWithAlignment(row []string, colWidths []int) string 
 
 	parts := []string{}
 	for col, cell := range row {
+		// Always add the cell content (even if empty)
 		parts = append(parts, cell)
-		// Only add padding and separator if this is not the last column in this row
+
+		// Only add padding and separator if this is not the last column
 		if col < len(row)-1 {
 			// Calculate padding needed for this column
 			cellWidth := runewidth.StringWidth(cell)
