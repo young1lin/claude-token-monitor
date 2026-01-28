@@ -1,4 +1,5 @@
 version: 2
+
 project_name: claude-token-monitor
 
 before:
@@ -24,6 +25,7 @@ builds:
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
 
 archives:
   - id: statusline
