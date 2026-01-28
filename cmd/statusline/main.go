@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"sync"
 
 	"github.com/young1lin/claude-token-monitor/internal/parser"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/config"
@@ -14,37 +12,22 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/statusline/content/composers"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/render"
-	"github.com/young1lin/claude-token-monitor/internal/update"
 )
 
+// Version information injected by ldflags during build
 var (
-	// updateAvailable holds the latest version if an update is available
-	updateAvailable   string
-	updateAvailableMu sync.RWMutex
+	version = "dev"
+	commit  = "unknown"
 )
-
-// checkUpdate checks for updates in the background
-func checkUpdate() {
-	checker := update.NewChecker(update.Version)
-	release, err := checker.Check()
-	if err != nil || release == nil {
-		return
-	}
-
-	latest := strings.TrimPrefix(release.TagName, "v")
-	if update.Version != "dev" && update.Version < latest {
-		updateAvailableMu.Lock()
-		updateAvailable = latest
-		updateAvailableMu.Unlock()
-	}
-}
 
 func main() {
+	// Handle --version flag
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Printf("statusline version %s (commit: %s)\n", version, commit)
+		return
+	}
 	// Initialize Windows console for UTF-8 and ANSI support
 	initConsole()
-
-	// Check for updates in background
-	go checkUpdate()
 
 	// Read all input from stdin
 	inputBytes, err := io.ReadAll(os.Stdin)
@@ -118,14 +101,6 @@ func main() {
 		lines = []string{tableRenderer.RenderSingleLine()}
 	} else {
 		lines = tableRenderer.Render()
-	}
-
-	// Add update indicator if available
-	updateAvailableMu.RLock()
-	latest := updateAvailable
-	updateAvailableMu.RUnlock()
-	if latest != "" {
-		lines = append(lines, fmt.Sprintf("↑ Update available: v%s", latest))
 	}
 
 	// Print output
