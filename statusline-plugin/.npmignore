@@ -1,8 +1,0 @@
-# Keep only necessary files
-*
-!bin/
-!install.js
-!postinstall.js
-!.claude-plugin/
-!package.json
-!README.md
