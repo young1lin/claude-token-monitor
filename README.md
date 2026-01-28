@@ -12,8 +12,34 @@ A TUI tool for real-time Claude Code token usage monitoring.
 
 ## Installation
 
+### Option 1: Download Pre-built Binary (Recommended)
+
+**Linux/macOS:**
 ```bash
-go install github.com/young1lin/claude-token-monitor/cmd/monitor@latest
+# Detect platform and download latest release
+curl -s https://api.github.com/repos/young1lin/claude-token-monitor/releases/latest | \
+  grep "browser_download_url.*statusline_$(uname -s)_$(uname -m)" | \
+  cut -d '"' -f 4 | xargs -I {} curl -L -o statusline {} && \
+  chmod +x statusline && sudo mv statusline /usr/local/bin/
+```
+
+**Windows (PowerShell):**
+```powershell
+# Download and install to user directory
+Invoke-WebRequest -Uri "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_windows_amd64.zip" -OutFile "statusline.zip"
+Expand-Archive -Path statusline.zip -DestinationPath .
+Move-Item statusline.exe $env:USERPROFILE\.local\bin\
+# Add to PATH if needed
+$env:PATH += ";$env:USERPROFILE\.local\bin"
+```
+
+**Manual Download:**
+Visit [Releases](https://github.com/young1lin/claude-token-monitor/releases) and download the binary for your platform.
+
+### Option 2: Build from Source
+
+```bash
+go install github.com/young1lin/claude-token-monitor/cmd/statusline@latest
 ```
 
 ## Usage
