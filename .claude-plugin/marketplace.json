@@ -1,3 +1,23 @@
 {
-  "plugins": ["claude-token-monitor"]
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-token-monitor",
+  "version": "0.1.0",
+  "description": "Real-time token usage statusline for Claude Code",
+  "owner": {
+    "name": "young1lin",
+    "email": "young1lin@users.noreply.github.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-token-monitor",
+      "description": "Real-time token usage statusline for Claude Code - context health, cost tracking, git status",
+      "version": "0.1.0",
+      "author": {
+        "name": "young1lin",
+        "email": "young1lin@users.noreply.github.com"
+      },
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
 }
