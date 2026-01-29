@@ -2,43 +2,35 @@
 
 ## Project Overview
 
-**Claude Token Monitor** is a real-time terminal UI (TUI) application that monitors Claude Code's token usage. It watches Claude Code's JSONL session files and displays live token statistics, cost estimates, and context window usage.
+**Claude Token Monitor** is a pure statusline plugin for Claude Code that displays real-time session information directly in the IDE's status bar. It provides live token usage statistics, git status, tool calls, agent information, and more.
 
 ### Key Features
 
-- **Real-time Monitoring**: Watches Claude Code session files for live token updates
-- **TUI Display**: Bubbletea-based terminal interface with color-coded metrics
+- **Token Usage**: Real-time token display with colored progress bar
+- **Git Integration**: Branch name and file change statistics (+new ~modified -deleted)
+- **Tool Tracking**: Displays active and completed tool calls
+- **Agent Info**: Shows active agents and their descriptions
+- **TODO Progress**: Tracks completion of TODO items from session
+- **Session Duration**: Shows elapsed time for current session
 - **Cross-platform**: Supports Windows, macOS, and Linux
-- **Persistent History**: SQLite database stores session history
-- **Cost Tracking**: Estimates API costs based on Claude model pricing
+- **High Performance**: Stateless execution with <10ms startup time
 
 ### Architecture
 
 ```
-cmd/monitor/          # Main application entry point
-├── main.go           # Entry point with os.Exit handling
-├── app.go            # Core application logic with dependency injection
-└── app_test.go       # Comprehensive tests using mocks
+cmd/statusline/            # Statusline plugin entry point
+└── main.go               # Entry point with JSON input/output
 
 internal/
-├── config/           # Configuration and model info
-│   ├── models.go     # Claude model definitions and pricing
-│   └── paths.go      # Platform-specific path resolution
-├── monitor/          # File watching and session detection
-│   ├── session.go    # Session finding and parsing
-│   ├── watcher.go    # File system watcher (fsnotify)
-│   └── fs.go         # FileSystem interface for mocking
-├── parser/           # JSONL parsing and token calculation
-│   ├── jsonl.go      # Line-by-line JSONL parser
-│   └── token.go      # Token statistics and formatting
-└── store/            # SQLite persistence
-    └── sqlite.go     # Database operations
-
-tui/                  # Terminal UI (Bubbletea)
-├── model.go          # TUI model state
-├── update.go         # State update logic
-├── view.go           # View rendering
-└── messages.go       # Message types
+├── parser/               # Transcript parsing
+│   ├── transcript.go     # JSONL transcript parser
+│   └── transcript_test.go
+├── statusline/
+│   ├── config/           # Configuration management
+│   ├── content/          # Content collectors and composers
+│   ├── layout/           # Layout management
+│   └── render/           # Output rendering
+└── windows/              # Windows console initialization
 ```
 
 ### Claude Code Data Directory (IMPORTANT)
@@ -60,180 +52,31 @@ tui/                  # Terminal UI (Bubbletea)
 
 **Note**: The project directory names are URL-encoded paths (e.g., `C--Users-...-project`).
 
-The `ProjectsDir()` function returns `~/.claude/projects` on **all platforms** (Windows, macOS, Linux).
+## Building
 
-## Test Coverage Philosophy
+**IMPORTANT**: Binaries are built to the **current directory**, NOT to a `bin/` subdirectory.
 
-### Current Coverage: 84.0%
-
-```
-Package                Coverage    Status
-────────────────────────────────────────────
-cmd/monitor            75.4%       Good (includes main)
-internal/config        72.1%       Platform-specific
-internal/monitor       74.4%       Good
-internal/parser        94.1%       Excellent
-internal/store         86.0%       Good
-tui                    95.5%       Excellent
-────────────────────────────────────────────
-Overall                84.0%       Excellent
+```bash
+# Build statusline plugin (outputs: statusline.exe on Windows, statusline on macOS/Linux)
+go build -o statusline.exe ./cmd/statusline
 ```
 
-### Why 100% Coverage Is NOT Achieved (By Design)
+### Platform-Specific Output
 
-This project follows Go standard library practices: **100% test coverage is neither realistic nor desirable**. Below are the specific reasons why certain code is not covered, and why this is acceptable.
+| Platform | Statusline Binary |
+|----------|-------------------|
+| Windows  | `statusline.exe`  |
+| macOS    | `statusline`      |
+| Linux    | `statusline`      |
 
-#### 1. Platform-Specific Code (72.1% coverage in `internal/config`)
+### Quick Build Command
 
-**The Issue**: The `paths.go` file uses `runtime.GOOS` to handle platform differences:
-
-```go
-func ClaudeDataDir() string {
-    switch runtime.GOOS {
-    case "windows":
-        // Windows-specific code
-        appData := os.Getenv("APPDATA")
-        return filepath.Join(appData, "Claude")
-    case "darwin":
-        // macOS-specific code (NEVER runs on Windows)
-        home, _ := os.UserHomeDir()
-        return filepath.Join(home, "Library", "Application Support", "Claude")
-    default: // linux, etc.
-        // Linux-specific code (NEVER runs on Windows)
-        home, _ := os.UserHomeDir()
-        return filepath.Join(home, ".config", "Claude")
-    }
-}
+```bash
+# Build for current platform
+go build -o statusline$(go env GOEXE) ./cmd/statusline
 ```
 
-**Why This Is Correct**: When running on Windows, only the `windows` branch executes. The `darwin` and `linux` branches are **intentionally untested** on Windows.
-
-**Go Standard Library Approach**: This is exactly how Go's standard library handles platform-specific code using build tags:
-- `file_windows.go` - Windows-only code
-- `file_unix.go` - Unix-only code (macOS/Linux)
-- `file_windows_test.go` - Windows-only tests (`//go:build windows`)
-- `file_darwin_test.go` - macOS-only tests (`//go:build darwin`)
-
-**Our Implementation**: We've created platform-specific test files:
-- `paths_windows_test.go` with `//go:build windows`
-- `paths_darwin_test.go` with `//go:build darwin`
-- `paths_linux_test.go` with `//go:build linux`
-
-When tests run on each platform, that platform's specific code will be covered. This is the **correct and idiomatic** Go approach.
-
-#### 2. os.Exit() in main() (40% coverage in `main.go`)
-
-**The Issue**: The `main()` function calls `os.Exit(1)` on error:
-
-```go
-func main() {
-    if err := run(&AppDependencies{...}); err != nil {
-        logAndExit(err)  // Calls os.Exit(1)
-    }
-}
-
-func logAndExit(err error) {
-    if err != nil {
-        exitFunc(1)  // exitFunc = os.Exit
-    }
-}
-```
-
-**Why This Is Hard to Test**: Calling `os.Exit()` immediately terminates the process, preventing test cleanup.
-
-**Industry Best Practices**:
-1. **Dependency Injection** (✅ We use this): Make `os.Exit` a variable that can be mocked
-2. **Subprocess Testing**: Run the binary in a child process and check exit codes
-3. **Accept Partial Coverage**: Testing the logic inside `main()` is more important than testing `os.Exit` itself
-
-**Our Implementation**:
-```go
-var exitFunc = os.Exit  // Variable for mocking
-
-func TestLogAndExit(t *testing.T) {
-    originalExitFunc := exitFunc
-    defer func() { exitFunc = originalExitFunc }()
-
-    exitCalled := false
-    exitFunc = func(code int) {
-        exitCalled = true
-    }
-
-    logAndExit(errors.New("test"))
-    // Verify exit was called
-}
-```
-
-This is the recommended approach from [Stack Overflow: How to test os.exit scenarios in Go](https://stackoverflow.com/questions/26225513/how-to-test-os-exit-scenarios-in-go).
-
-#### 3. Unreachable Dead Code (75% coverage in `token.go`)
-
-**The Issue**: Defensive code that can never be reached:
-
-```go
-func CalculateContextPercentage(model string, totalTokens int) float64 {
-    contextWindow := config.GetContextWindow(model)
-    if contextWindow == 0 {
-        return 0  // ❌ NEVER EXECUTED
-    }
-    return float64(totalTokens) / float64(contextWindow) * 100
-}
-```
-
-**Why This Exists**: `config.GetContextWindow()` always returns a valid context window (defaulting to Sonnet's 200000), so the `contextWindow == 0` branch is unreachable.
-
-**Solution Options**:
-1. Remove the dead code (cleaner)
-2. Add a `//go:noinline` comment and test with a mock that returns 0
-3. Accept the coverage gap (defensive programming)
-
-#### 4. Channel Closing Race Conditions (57.7% coverage in `app.go`)
-
-**The Issue**: The `runWatchLoop` function has rare race conditions:
-
-```go
-select {
-case line, ok := <-watcher.Lines():
-    if !ok { return }  // Line closes first
-case err, ok := <-watcher.Errors():
-    if !ok { return }  // Error closes first
-}
-```
-
-When both channels close simultaneously, only one branch executes. This is a **fundamental limitation of Go's select statement**, not a test gap.
-
-### Industry Perspective: Is 100% Coverage Worth It?
-
-**Sources:**
-- [Why reaching 100% Code Coverage must NOT be your goal](https://www.reddit.com/r/programming/comments/1beg654/why_reaching_100_code_coverage_must_not_be_your/)
-- [Code Coverage: Why 100% Isn't the Holy Grail](https://www.testim.io/blog/code-coverage-why-100-isnt-the-holy-grail/)
-
-**Consensus**:
-- 80-90% coverage is considered excellent
-- Focus on **business logic** and **critical paths**
-- Don't compromise code quality for coverage metrics
-- Platform-specific code is exempt from 100% goals
-
-### Our Testing Strategy
-
-#### What We DO Test Comprehensively:
-- ✅ Business logic (parser, token calculation)
-- ✅ Database operations (store package)
-- ✅ TUI state transitions (model/update)
-- ✅ Error handling paths
-- ✅ Edge cases (empty data, malformed JSON)
-
-#### What We Accept Partial Coverage On:
-- ⚠️ Platform-specific branches (by design)
-- ⚠️ os.Exit() calls (industry-standard limitation)
-- ⚠️ Channel race conditions (fundamental Go limitation)
-
-#### Testing Techniques Used:
-1. **Table-Driven Tests**: Comprehensive input/output combinations
-2. **Dependency Injection**: Mockable interfaces for all external dependencies
-3. **Build Tags**: Platform-specific test files
-4. **GoMock**: Generated mocks for FileSystem interface
-5. **Race Detection**: `go test -race` for concurrent code
+Note: `go env GOEXE` returns `.exe` on Windows and empty on Unix systems.
 
 ## Running Tests
 
@@ -246,62 +89,61 @@ go tool cover -html=coverage.out
 
 # Run tests with race detection
 go test ./... -race
-
-# Run platform-specific tests (automatically selected by build tags)
-go test ./internal/config/...  # Runs only tests for current platform
 ```
 
-## Coverage Targets by Package
+## Configuration
 
-| Package | Target | Current | Status |
-|---------|--------|---------|--------|
-| cmd/monitor | 70% | 75.4% | ✅ Exceeded |
-| internal/config | 65%* | 72.1% | ✅ Exceeded (platform-specific) |
-| internal/monitor | 70% | 74.4% | ✅ Exceeded |
-| internal/parser | 90% | 94.1% | ✅ Exceeded |
-| internal/store | 80% | 86.0% | ✅ Exceeded |
-| tui | 90% | 95.5% | ✅ Exceeded |
+### Global Configuration (Recommended)
 
-*Note: config package target is lower due to platform-specific code.
+**Location**: `~/.claude/settings.json`
 
-## Building
-
-**IMPORTANT**: Binaries are built to the **current directory**, NOT to a `bin/` subdirectory.
-
-```bash
-# Build statusline plugin (outputs: statusline.exe on Windows, statusline on macOS/Linux)
-go build -o statusline.exe ./cmd/statusline
-
-# Build monitor TUI app (outputs: monitor.exe on Windows, monitor on macOS/Linux)
-go build -o monitor.exe ./cmd/monitor
-
-# Build both at once
-go build -o statusline.exe ./cmd/statusline && go build -o monitor.exe ./cmd/monitor
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\\\Users\\\\YourName\\\\claude-token-monitor\\\\statusline.exe",
+    "env": {
+      "STATUSLINE_SINGLELINE": "1"
+    }
+  }
+}
 ```
 
-### Platform-Specific Output
+### Project-Level Configuration
 
-| Platform | Statusline Binary | Monitor Binary |
-|----------|-------------------|----------------|
-| Windows  | `statusline.exe`  | `monitor.exe`  |
-| macOS    | `statusline`      | `monitor`      |
-| Linux    | `statusline`      | `monitor`      |
+**Location**: `.claude/settings.json` (project root)
 
-### Quick Build Command
+Overrides global settings for specific projects.
 
-```bash
-# One command to build everything for current platform
-go build -o statusline$(go env GOEXE) ./cmd/statusline && go build -o monitor$(go env GOEXE) ./cmd/monitor
+### Environment Variables
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `STATUSLINE_SINGLELINE` | `1` | Enable single-line mode (default) |
+| `STATUSLINE_DEBUG` | `1` | Enable debug output to stderr |
+| `STATUSLINE_NO_COLOR` | `1` | Disable ANSI colors |
+| `STATUSLINE_COMPACT` | `1` | Enable compact mode |
+
+## StatusLine Output Format
+
+### Single-Line Mode (default)
+
+```
+📁 minimal-mcp | [GLM-4.7] | [███░░░░░░░] 75K/200K | 🌿 main +143 ~1 | 🔧 8 tools | 🤖 Explore | 📋 3/10
 ```
 
-Note: `go env GOEXE` returns `.exe` on Windows and empty on Unix systems.
+### Component Breakdown
 
-## References
-
-- [Go Testing Bible](https://go.dev/doc/build-cover)
-- [Table-Driven Tests in Go](https://go.dev/wiki/TableDrivenTests)
-- [How to test os.exit in Go](https://stackoverflow.com/questions/26225513/how-to-test-os-exit-scenarios-in-go)
-- [Go Build Tags Documentation](https://pkg.go.dev/cmd/go#hdr-Build_constraints)
+| Component | Description |
+|-----------|-------------|
+| `📁 minimal-mcp` | Project folder name |
+| `[GLM-4.7]` | Model display name |
+| `[███░░░░░░░]` | Colored progress bar |
+| `75K/200K` | Token usage (current/total) |
+| `🌿 main +143 ~1` | Git branch and file changes |
+| `🔧 8 tools` | Tool call count |
+| `🤖 Explore` | Active agent type |
+| `📋 3/10` | TODO progress |
 
 ---
 
@@ -309,13 +151,14 @@ Note: `go env GOEXE` returns `.exe` on Windows and empty on Unix systems.
 
 ## Overview
 
-Added a Claude Code statusLine plugin that displays real-time information in a single line:
+The statusline plugin displays real-time information in a single (or multi) line:
 - Token usage with colored progress bar
 - Git branch and file change statistics (+new ~modified -deleted)
 - Tool call counts
 - Agent information
 - TODO progress
 - Project folder name
+- Session duration
 
 ## Location
 
@@ -362,12 +205,6 @@ cmd := exec.Command("git", "status", "--porcelain", "--untracked-files=all")
 
 **Solution**: Always use `git` command to get current branch:
 ```go
-// WRONG: Use cached transcript data
-gitBranch := summary.GitBranch
-if gitBranch == "" {
-    gitBranch = getGitBranch(input.Cwd)
-}
-
 // CORRECT: Always get real-time data
 gitBranch := getGitBranch(input.Cwd)
 ```
@@ -380,9 +217,6 @@ gitBranch := getGitBranch(input.Cwd)
 
 **Solution**: Use foreground + bold colors which are more widely supported:
 ```go
-// Less compatible
-colorCode = "\x1b[48;5;196m"  // Background color
-
 // More compatible
 colorCode = "\x1b[1;31m"  // Bold foreground
 ```
@@ -393,31 +227,11 @@ colorCode = "\x1b[1;31m"  // Bold foreground
 
 **Solution**: Adjusted thresholds for AutoCompact environment:
 ```go
-// Original (80% unreachable)
-if pct >= 80 { colorCode = "\x1b[1;31m" }
-
 // Adjusted for AutoCompact at 75%
 if pct >= 60 { colorCode = "\x1b[1;31m" }  // Red
 else if pct >= 40 { colorCode = "\x1b[1;33m" }  // Yellow
 else if pct >= 20 { colorCode = "\x1b[1;36m" }  // Cyan
 else { colorCode = "\x1b[1;32m" }  // Green
-```
-
-### Problem 6: Test Failures After Adding singleLine Parameter
-
-**Symptom**: Tests failed with "not enough arguments" errors.
-
-**Root Cause**: Added `singleLine bool` parameter to `NewModel()` and `runWatchLoop()` but didn't update tests.
-
-**Solution**: Updated all test calls:
-```go
-// Before
-model := NewModel()
-runWatchLoop(sender, watcher, db, session, history)
-
-// After
-model := NewModel(false)  // false = TUI mode for tests
-runWatchLoop(sender, watcher, db, session, history, false)
 ```
 
 ## Key Takeaways
@@ -432,8 +246,6 @@ runWatchLoop(sender, watcher, db, session, history, false)
    - 31 = Red, 32 = Green, 33 = Yellow, 36 = Cyan
 
 4. **Adjust thresholds to actual usage** - If a system limits at 75% (AutoCompact), design UI scales around that limit, not theoretical maximums.
-
-5. **Update tests with signature changes** - When adding function parameters, grep for all callers and update them immediately.
 
 ## Claude Code statusLine Limitations
 
@@ -480,7 +292,7 @@ The statusline plugin works on a **stateless execution model**, not a persistent
    ```javascript
    // Claude Code internal (pseudocode)
    const process = spawn('statusline.exe', {
-       env: { STATUSLINE_MULTILINE: '1' }
+       env: { STATUSLINE_SINGLELINE: '1' }
    });
    ```
 
@@ -513,23 +325,6 @@ The statusline plugin works on a **stateless execution model**, not a persistent
 
 **Critical Point**: The executable file is **read fresh from disk on each invocation**. There's no in-memory caching of the binary itself.
 
-### Comparison: Daemon vs Stateless
-
-| Aspect | Daemon (Persistent) | StatusLine (Stateless) |
-|--------|---------------------|------------------------|
-| Process lifecycle | Runs continuously | Starts/exits per refresh |
-| Memory state | Persistent across refreshes | Reset each invocation |
-| Hot reload | Requires restart/SIGUSR1 | Automatic (new process) |
-| Resource usage | Higher (constant RAM) | Lower (brief CPU spikes) |
-| Failure impact | Crashes affect all refreshes | Single refresh failure only |
-
-### Why Claude Code Uses This Model
-
-1. **Simplicity**: No need for IPC, daemon lifecycle management
-2. **Reliability**: If plugin crashes, only one refresh fails
-3. **Flexibility**: Easy to swap/upgrade plugins
-4. **Language Agnostic**: Any executable that reads stdin/writes stdout works
-
 ### Practical Implications
 
 #### For Development
@@ -552,48 +347,6 @@ cp new-statusline.exe ~/.claude/statusline.exe
 # Works immediately - no restart
 ```
 
-#### Caching Behavior
-
-**What IS cached**: Plugin output (for ~1-5 seconds to avoid flicker)
-
-**What is NOT cached**: The executable binary itself
-
-```go
-// Claude Code internal (simplified)
-let lastOutput = '';
-let lastUpdateTime = 0;
-
-function refreshStatusline() {
-    const now = Date.now();
-    if (now - lastUpdateTime < 5000) {
-        return lastOutput;  // Use cached output
-    }
-
-    const output = spawnSync('statusline.exe', ...);
-    lastOutput = output;
-    lastUpdateTime = now;
-    return output;
-}
-```
-
-### Verification
-
-**To verify hot reload is working:**
-
-1. Add a visible change to `main.go`:
-   ```go
-   fmt.Println("🔥 TEST v2.0")  // Add unique marker
-   ```
-
-2. Recompile:
-   ```bash
-   go build -o statusline.exe ./cmd/statusline
-   ```
-
-3. Send a message in Claude Code
-
-4. **Expected**: Statusline shows "🔥 TEST v2.0"
-
 ### Troubleshooting
 
 | Issue | Cause | Solution |
@@ -601,3 +354,9 @@ function refreshStatusline() {
 | Changes not appearing | Old binary still running | Check for zombie processes (`ps aux \| grep statusline`) |
 | Stale output | Output cache not expired | Wait 5+ seconds or send new message |
 | Wrong version | Multiple `statusline.exe` on PATH | Verify which binary is being used (`which statusline.exe`) |
+
+## References
+
+- [Go Testing Bible](https://go.dev/doc/build-cover)
+- [Table-Driven Tests in Go](https://go.dev/wiki/TableDrivenTests)
+- [Go Build Tags Documentation](https://pkg.go.dev/cmd/go#hdr-Build_constraints)
