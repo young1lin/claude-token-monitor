@@ -9,12 +9,5 @@
   "homepage": "https://github.com/young1lin/claude-token-monitor",
   "repository": "https://github.com/young1lin/claude-token-monitor",
   "license": "MIT",
-  "keywords": ["statusline", "token", "monitor", "context", "cost", "claude-code"],
-  "hooks": {
-    "post-install": {
-      "windows": "powershell -ExecutionPolicy Bypass -File scripts/install.ps1",
-      "darwin": "bash scripts/install.sh",
-      "linux": "bash scripts/install.sh"
-    }
-  }
+  "keywords": ["statusline", "token", "monitor", "context", "cost", "claude-code"]
 }
