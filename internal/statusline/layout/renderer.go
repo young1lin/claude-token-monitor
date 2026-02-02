@@ -1,10 +1,19 @@
 package layout
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
 )
+
+// ansiRegex matches ANSI escape sequences (color codes, etc.)
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// displayWidth returns the visible width of a string, ignoring ANSI escape sequences
+func displayWidth(s string) int {
+	return runewidth.StringWidth(ansiRegex.ReplaceAllString(s, ""))
+}
 
 // Renderer renders a grid to output lines
 type Renderer struct {
@@ -91,7 +100,7 @@ func (r *Renderer) calculateColumnWidths(rows [][]string) []int {
 		maxWidth := 0
 		for _, row := range rows {
 			if col < len(row) {
-				width := runewidth.StringWidth(row[col])
+				width := displayWidth(row[col])
 				if width > maxWidth {
 					maxWidth = width
 				}
@@ -117,7 +126,7 @@ func (r *Renderer) renderRowWithAlignment(row []string, colWidths []int) string 
 		// Only add padding and separator if this is not the last column
 		if col < len(row)-1 {
 			// Calculate padding needed for this column
-			cellWidth := runewidth.StringWidth(cell)
+			cellWidth := displayWidth(cell)
 			targetWidth := colWidths[col]
 			padding := targetWidth - cellWidth
 			if padding < 0 {

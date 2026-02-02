@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/young1lin/claude-token-monitor/internal/parser"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/config"
@@ -26,6 +30,16 @@ func main() {
 		fmt.Printf("statusline version %s (commit: %s)\n", version, commit)
 		return
 	}
+
+	// Check for --debug flag
+	debugMode := false
+	for _, arg := range os.Args {
+		if arg == "--debug" {
+			debugMode = true
+			break
+		}
+	}
+
 	// Initialize Windows console for UTF-8 and ANSI support
 	initConsole()
 
@@ -40,6 +54,42 @@ func main() {
 	inputBytes = trimNullBytes(inputBytes)
 	if len(inputBytes) == 0 {
 		return
+	}
+
+	// Write debug file if --debug is enabled
+	if debugMode {
+		// Get executable directory
+		exePath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Debug: failed to get executable path: %v\n", err)
+		} else {
+			exeDir := filepath.Dir(exePath)
+			debugFile := filepath.Join(exeDir, "statusline.debug")
+
+			// Parse and pretty-print JSON
+			var prettyJSON bytes.Buffer
+			if err := json.Indent(&prettyJSON, inputBytes, "", "  "); err != nil {
+				// If pretty-print fails, write raw JSON
+				prettyJSON.Write(inputBytes)
+			}
+
+			// Add separator at top and bottom
+			separator := strings.Repeat("-", 60)
+			content := fmt.Sprintf("%s\nTimestamp: %s\nFile: %s\n%s\n\n%s\n%s\n",
+				separator,
+				time.Now().Format("2006-01-02 15:04:05"),
+				debugFile,
+				separator,
+				prettyJSON.String(),
+				separator,
+			)
+
+			if err := os.WriteFile(debugFile, []byte(content), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Debug: failed to write debug file: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Debug: wrote to %s\n", debugFile)
+			}
+		}
 	}
 
 	// Parse input JSON
