@@ -24,6 +24,7 @@ const (
 	ContentTools           ContentType = "tools"
 	ContentCurrentTime     ContentType = "current-time"
 	ContentSessionDuration ContentType = "session-duration"
+	ContentSkills          ContentType = "skills"
 	ContentQuota           ContentType = "quota"
 )
 
