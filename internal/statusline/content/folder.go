@@ -2,7 +2,7 @@ package content
 
 import (
 	"fmt"
-	"strings"
+	"path/filepath"
 	"time"
 )
 
@@ -17,9 +17,9 @@ type StatusLineInput struct {
 		TotalOutputTokens int `json:"total_output_tokens"`
 		ContextWindowSize int `json:"context_window_size"`
 		CurrentUsage      struct {
-			InputTokens             int `json:"input_tokens"`
-			OutputTokens            int `json:"output_tokens"`
-			CacheReadInputTokens    int `json:"cache_read_input_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"current_usage"`
 	} `json:"context_window"`
@@ -77,24 +77,11 @@ func getProjectName(cwd string) string {
 		return ""
 	}
 
-	// Get the last part of the path
-	parts := strings.Split(cwd, "\\")
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		if len(name) > 25 {
-			return name[:22] + ".."
-		}
-		return name
-	}
+	// Use filepath.Base which handles both \ and / correctly
+	name := filepath.Base(cwd)
 
-	parts = strings.Split(cwd, "/")
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		if len(name) > 25 {
-			return name[:22] + ".."
-		}
-		return name
+	if len(name) > 25 {
+		return name[:22] + ".."
 	}
-
-	return ""
+	return name
 }
