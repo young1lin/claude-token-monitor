@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,6 +69,15 @@ type TokenUsage struct {
 	CacheReadInputTokens  int `json:"cache_read_input_tokens"`
 }
 
+// Transcript parse cache with mtime tracking
+var (
+	transcriptCache     *TranscriptSummary
+	transcriptCachePath string
+	transcriptCacheMu   sync.RWMutex
+	transcriptCacheTime time.Time
+	transcriptCacheTTL  = 5 * time.Second
+)
+
 // ParseTranscriptLastNLines reads and parses the last N lines of a transcript file
 func ParseTranscriptLastNLines(transcriptPath string, n int) (*TranscriptSummary, error) {
 	return ParseTranscriptLastNLinesWithProjectPath(transcriptPath, n, "")
@@ -80,6 +90,22 @@ func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, n int, proj
 		return &TranscriptSummary{}, nil
 	}
 
+	// Check cache with mtime optimization
+	now := time.Now()
+	transcriptCacheMu.RLock()
+	if transcriptCache != nil && transcriptCachePath == transcriptPath {
+		// Check if file was modified since last parse
+		if info, err := os.Stat(transcriptPath); err == nil {
+			if info.ModTime().Equal(transcriptCacheTime) && now.Sub(transcriptCacheTime) < transcriptCacheTTL {
+				// File hasn't been modified and cache is still valid
+				cached := *transcriptCache
+				transcriptCacheMu.RUnlock()
+				return &cached, nil
+			}
+		}
+	}
+	transcriptCacheMu.RUnlock()
+
 	file, err := os.Open(transcriptPath)
 	if err != nil {
 		return &TranscriptSummary{}, nil
@@ -91,6 +117,9 @@ func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, n int, proj
 	if err != nil {
 		return &TranscriptSummary{}, nil
 	}
+
+	// Store the modification time for caching
+	fileModTime := stat.ModTime()
 
 	// Seek to end - 64KB (enough for ~100 lines of JSON)
 	offset := stat.Size() - 65536
@@ -127,6 +156,13 @@ func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, n int, proj
 	if summary.GitBranch == "" && projectPath != "" {
 		summary.GitBranch = getGitBranchForPath(projectPath)
 	}
+
+	// Update cache with new result and file modification time
+	transcriptCacheMu.Lock()
+	transcriptCache = summary
+	transcriptCachePath = transcriptPath
+	transcriptCacheTime = fileModTime
+	transcriptCacheMu.Unlock()
 
 	return summary, nil
 }

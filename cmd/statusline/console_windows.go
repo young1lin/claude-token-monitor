@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"syscall"
 	"unsafe"
 )
@@ -24,7 +25,14 @@ const (
 )
 
 // initConsole initializes Windows console for UTF-8 and virtual terminal processing
+// Optimized to skip initialization if already done by Claude Code (checked via env var)
 func initConsole() {
+	// Check if console was already initialized by the parent process (Claude Code)
+	// This avoids redundant Windows API calls on every statusline refresh
+	if os.Getenv("CLAUDE_CONSOLE_INITIALIZED") == "1" {
+		return
+	}
+
 	// Set console code page to UTF-8 (65001)
 	procSetConsoleOutputCP.Call(CP_UTF8)
 	procSetConsoleCP.Call(CP_UTF8)
@@ -36,4 +44,7 @@ func initConsole() {
 		procGetConsoleMode.Call(stdoutHandle, uintptr(unsafe.Pointer(&mode)))
 		procSetConsoleMode.Call(stdoutHandle, uintptr(mode|ENABLE_VIRTUAL_TERMINAL_PROCESSING))
 	}
+
+	// Mark console as initialized for child processes
+	os.Setenv("CLAUDE_CONSOLE_INITIALIZED", "1")
 }

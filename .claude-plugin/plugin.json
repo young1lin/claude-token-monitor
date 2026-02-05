@@ -1,7 +1,7 @@
 {
   "name": "claude-token-monitor",
   "description": "Real-time token usage statusline for Claude Code - context health, cost tracking, git status",
-  "version": "0.1.1",
+  "version": "0.1.4",
   "author": {
     "name": "young1lin",
     "url": "https://github.com/young1lin"
