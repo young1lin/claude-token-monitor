@@ -2,6 +2,8 @@
 
 Real-time token usage statusline for Claude Code.
 
+![](./images/claude-code-monitor.png)
+
 ## Installation
 
 ```bash

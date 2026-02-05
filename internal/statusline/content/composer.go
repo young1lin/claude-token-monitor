@@ -23,17 +23,24 @@ type Composer interface {
 
 // BaseComposer provides a template-based composer implementation
 type BaseComposer struct {
-	name       string
+	name     string
 	inputTypes []ContentType
-	template   string
+	template string
+	parsed   *template.Template // Pre-parsed template for performance
 }
 
-// NewBaseComposer creates a new template-based composer
+// NewBaseComposer creates a new template-based composer with pre-parsed template
 func NewBaseComposer(name string, inputTypes []ContentType, tmpl string) *BaseComposer {
+	var parsed *template.Template
+	if tmpl != "" {
+		// Pre-parse the template once during construction
+		parsed, _ = template.New(name).Option("missingkey=zero").Parse(tmpl)
+	}
 	return &BaseComposer{
 		name:       name,
 		inputTypes: inputTypes,
 		template:   tmpl,
+		parsed:     parsed,
 	}
 }
 
@@ -61,12 +68,15 @@ func (c *BaseComposer) Compose(contents map[ContentType]string) string {
 		data[string(ct)] = contents[ct]
 	}
 
-	// Parse and execute template
-	// Allow missing keys for flexibility
-	tmpl, err := template.New(c.name).Option("missingkey=zero").Parse(c.template)
-	if err != nil {
-		// Fallback to simple concatenation if template fails
-		return c.fallbackCompose(contents)
+	// Use pre-parsed template if available, otherwise fall back to runtime parsing
+	tmpl := c.parsed
+	if tmpl == nil {
+		// Runtime parse if pre-parsing failed (shouldn't happen)
+		var err error
+		tmpl, err = template.New(c.name).Option("missingkey=zero").Parse(c.template)
+		if err != nil {
+			return c.fallbackCompose(contents)
+		}
 	}
 
 	var buf bytes.Buffer
@@ -190,10 +200,18 @@ type ConditionalPattern struct {
 	Optional []ContentType
 	// Format is the template to use (empty = skip this pattern)
 	Format string
+	// Parsed is the pre-parsed template for performance
+	Parsed *template.Template
 }
 
-// NewConditionalComposer creates a new conditional composer
+// NewConditionalComposer creates a new conditional composer with pre-parsed patterns
 func NewConditionalComposer(name string, inputTypes []ContentType, patterns []ConditionalPattern) *ConditionalComposer {
+	// Pre-parse all patterns for performance
+	for i := range patterns {
+		if patterns[i].Format != "" {
+			patterns[i].Parsed, _ = template.New(name).Option("missingkey=zero").Parse(patterns[i].Format)
+		}
+	}
 	return &ConditionalComposer{
 		name:           name,
 		inputTypes:     inputTypes,
@@ -219,18 +237,22 @@ func (c *ConditionalComposer) Compose(contents map[ContentType]string) string {
 				continue
 			}
 
+			// Use pre-parsed template if available
+			tmpl := pattern.Parsed
+			if tmpl == nil {
+				// Runtime parse if pre-parsing failed
+				var err error
+				tmpl, err = template.New(c.name).Option("missingkey=zero").Parse(pattern.Format)
+				if err != nil {
+					continue
+				}
+			}
+
 			// Build template data
 			data := make(map[string]interface{})
 			allTypes := append(pattern.Required, pattern.Optional...)
 			for _, ct := range allTypes {
 				data[string(ct)] = contents[ct]
-			}
-
-			// Parse and execute template
-			// Allow missing keys for flexibility
-			tmpl, err := template.New(c.name).Option("missingkey=zero").Parse(pattern.Format)
-			if err != nil {
-				continue
 			}
 
 			var buf bytes.Buffer

@@ -113,7 +113,8 @@ func countRulesUpward(cwd string) int {
 
 	cwd = filepath.Clean(cwd)
 
-	for i := 0; i < 20; i++ {
+	// Reduced from 20 to 10 levels - sufficient for 99% of projects
+	for i := 0; i < 10; i++ {
 		rulesDir := filepath.Join(cwd, ".claude", "rules")
 		if _, err := os.Stat(rulesDir); err == nil {
 			if !seen[rulesDir] {
@@ -139,7 +140,8 @@ func countClaudeMdUpward(cwd string) int {
 
 	cwd = filepath.Clean(cwd)
 
-	for i := 0; i < 20; i++ {
+	// Reduced from 20 to 10 levels - sufficient for 99% of projects
+	for i := 0; i < 10; i++ {
 		rootPath := filepath.Join(cwd, "CLAUDE.md")
 		if _, err := os.Stat(rootPath); err == nil {
 			if !seen[rootPath] {

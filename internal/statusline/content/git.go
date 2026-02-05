@@ -11,23 +11,23 @@ import (
 
 // Git caches
 var (
-	gitBranchCache     string
-	gitBranchCacheMu   sync.RWMutex
-	gitBranchCacheTime time.Time
-	gitBranchCacheTTL  = 30 * time.Second
-
-	gitStatusCache     *GitStatusData
-	gitStatusCacheMu   sync.RWMutex
-	gitStatusCacheTime time.Time
-	gitStatusCacheTTL  = 30 * time.Second
+	// Combined cache for parallel git operations (replaces individual caches)
+	gitCombinedCache struct {
+		branch     string
+		status     string
+		remote     string
+		lastUpdate time.Time
+		mu         sync.RWMutex
+	}
+	gitCombinedCacheTTL = 5 * time.Second
 )
 
 // GitStatusData holds git status information
 type GitStatusData struct {
-	Added       int
-	Deleted     int
-	Modified    int
-	RemoteAhead int
+	Added        int
+	Deleted      int
+	Modified     int
+	RemoteAhead  int
 	RemoteBehind int
 }
 
@@ -94,49 +94,80 @@ func (c *GitRemoteCollector) Collect(input interface{}, summary interface{}) (st
 	return getGitRemoteStatusCached(statusInput.Cwd), nil
 }
 
-// getGitBranchCached returns cached git branch
-func getGitBranchCached(cwd string) string {
+// getGitDataParallel fetches all git data (branch, status, remote) in parallel
+// This is the main optimization - instead of calling each git command sequentially,
+// we run them concurrently and wait for all to complete.
+func getGitDataParallel(cwd string) (branch, status, remote string) {
 	now := time.Now()
 
-	gitBranchCacheMu.RLock()
-	if gitBranchCache != "" && now.Sub(gitBranchCacheTime) < gitBranchCacheTTL {
-		cached := gitBranchCache
-		gitBranchCacheMu.RUnlock()
-		return cached
+	// Check combined cache first
+	gitCombinedCache.mu.RLock()
+	if gitCombinedCache.branch != "" && now.Sub(gitCombinedCache.lastUpdate) < gitCombinedCacheTTL {
+		branch = gitCombinedCache.branch
+		status = gitCombinedCache.status
+		remote = gitCombinedCache.remote
+		gitCombinedCache.mu.RUnlock()
+		return
 	}
-	gitBranchCacheMu.RUnlock()
+	gitCombinedCache.mu.RUnlock()
 
-	branch := getGitBranch(cwd)
+	var wg sync.WaitGroup
+	wg.Add(3)
 
-	gitBranchCacheMu.Lock()
-	gitBranchCache = branch
-	gitBranchCacheTime = now
-	gitBranchCacheMu.Unlock()
+	// Note: Direct assignment to named return values is safe here because:
+	// 1. Named returns are allocated before goroutines spawn
+	// 2. All assignments complete before wg.Wait() returns
+	// 3. No loop variables are captured (cwd is immutable parameter)
 
+	// Fetch branch in parallel
+	go func() {
+		defer wg.Done()
+		branch = getGitBranch(cwd)
+	}()
+
+	// Fetch status in parallel
+	go func() {
+		defer wg.Done()
+		added, deleted, modified := getGitStatus(cwd)
+		status = formatGitStatus(added, deleted, modified)
+	}()
+
+	// Fetch remote in parallel
+	go func() {
+		defer wg.Done()
+		ahead, behind := getGitRemoteStatusRaw(cwd)
+		remote = formatGitRemote(ahead, behind)
+	}()
+
+	wg.Wait()
+
+	// Update combined cache
+	gitCombinedCache.mu.Lock()
+	gitCombinedCache.branch = branch
+	gitCombinedCache.status = status
+	gitCombinedCache.remote = remote
+	gitCombinedCache.lastUpdate = now
+	gitCombinedCache.mu.Unlock()
+
+	return
+}
+
+// getGitBranchCached returns cached git branch
+func getGitBranchCached(cwd string) string {
+	branch, _, _ := getGitDataParallel(cwd)
 	return branch
 }
 
 // getGitStatusCached returns cached git status
 func getGitStatusCached(cwd string) string {
-	now := time.Now()
+	_, status, _ := getGitDataParallel(cwd)
+	return status
+}
 
-	gitStatusCacheMu.RLock()
-	if gitStatusCache != nil && now.Sub(gitStatusCacheTime) < gitStatusCacheTTL {
-		cached := *gitStatusCache
-		gitStatusCacheMu.RUnlock()
-		return formatGitStatus(cached.Added, cached.Deleted, cached.Modified)
-	}
-	gitStatusCacheMu.RUnlock()
-
-	added, deleted, modified := getGitStatus(cwd)
-	status := &GitStatusData{Added: added, Deleted: deleted, Modified: modified}
-
-	gitStatusCacheMu.Lock()
-	gitStatusCache = status
-	gitStatusCacheTime = now
-	gitStatusCacheMu.Unlock()
-
-	return formatGitStatus(added, deleted, modified)
+// getGitRemoteStatusCached returns cached git remote status
+func getGitRemoteStatusCached(cwd string) string {
+	_, _, remote := getGitDataParallel(cwd)
+	return remote
 }
 
 // formatGitStatus formats git status as a string
@@ -294,14 +325,6 @@ func getGitRemoteStatus(cwd string) string {
 	}
 
 	return ""
-}
-
-// getGitRemoteStatusCached returns cached git remote status
-func getGitRemoteStatusCached(cwd string) string {
-	// Always fetch fresh data for git remote status
-	// (don't share cache with git status to avoid conflicts)
-	ahead, behind := getGitRemoteStatusRaw(cwd)
-	return formatGitRemote(ahead, behind)
 }
 
 // formatGitRemote formats git remote status

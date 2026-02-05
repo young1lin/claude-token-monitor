@@ -12,12 +12,18 @@ test_input.json
 test.cmd
 test.ps1
 
+# Debug files
+nul
+statusline.debug
+
 # Local Claude settings only (settings.json is OK to commit)
 .claude/settings.local.json
 
 # Go
 go.work
 vendor/
+coverage.out
+*.coverprofile
 
 # IDE
 .idea/
