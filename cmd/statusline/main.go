@@ -27,21 +27,23 @@ var (
 )
 
 func init() {
-	// Set emoji width based on platform for proper alignment in multi-line mode
-	// macOS Terminal.app: emoji are rendered as width 2
-	// Windows/Linux terminals: emoji are typically rendered as width 1
+	// Set emoji width based on platform/terminal for proper alignment in multi-line mode
 	//
 	// This ensures that runewidth.StringWidth() calculates the same width
 	// as the terminal actually renders, preventing misaligned column separators.
 	//
 	// Platform-specific behavior:
 	// - macOS (darwin): EastAsianWidth=true → emoji calculated as width 2
-	// - Windows (windows): EastAsianWidth=false → emoji calculated as width 1
+	// - Windows Terminal (WT_SESSION env var): EastAsianWidth=true → emoji width 2
+	// - Other Windows terminals: EastAsianWidth=false → emoji calculated as width 1
 	// - Linux: EastAsianWidth=false → emoji calculated as width 1 (safe default)
 	if runtime.GOOS == "darwin" {
 		runewidth.EastAsianWidth = true // macOS: wide emoji
+	} else if runtime.GOOS == "windows" && os.Getenv("WT_SESSION") != "" {
+		// Windows Terminal renders emoji as width 2
+		runewidth.EastAsianWidth = true
 	} else {
-		runewidth.EastAsianWidth = false // Windows/Linux: narrow emoji
+		runewidth.EastAsianWidth = false // Other terminals: narrow emoji
 	}
 }
 
