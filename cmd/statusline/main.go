@@ -7,9 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/young1lin/claude-token-monitor/internal/parser"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/config"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
@@ -23,6 +25,25 @@ var (
 	version = "dev"
 	commit  = "unknown"
 )
+
+func init() {
+	// Set emoji width based on platform for proper alignment in multi-line mode
+	// macOS Terminal.app: emoji are rendered as width 2
+	// Windows/Linux terminals: emoji are typically rendered as width 1
+	//
+	// This ensures that runewidth.StringWidth() calculates the same width
+	// as the terminal actually renders, preventing misaligned column separators.
+	//
+	// Platform-specific behavior:
+	// - macOS (darwin): EastAsianWidth=true → emoji calculated as width 2
+	// - Windows (windows): EastAsianWidth=false → emoji calculated as width 1
+	// - Linux: EastAsianWidth=false → emoji calculated as width 1 (safe default)
+	if runtime.GOOS == "darwin" {
+		runewidth.EastAsianWidth = true // macOS: wide emoji
+	} else {
+		runewidth.EastAsianWidth = false // Windows/Linux: narrow emoji
+	}
+}
 
 func main() {
 	// Handle --version flag
