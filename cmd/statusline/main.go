@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,28 +88,50 @@ func main() {
 			exeDir := filepath.Dir(exePath)
 			debugFile := filepath.Join(exeDir, "statusline.debug")
 
-			// Parse and pretty-print JSON
-			var prettyJSON bytes.Buffer
-			if err := json.Indent(&prettyJSON, inputBytes, "", "  "); err != nil {
-				// If pretty-print fails, write raw JSON
-				prettyJSON.Write(inputBytes)
+			// Mask user home directory in raw JSON for privacy
+			debugJSON := string(inputBytes)
+			if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+				// On Windows, JSON escapes backslashes so C:\Users\xxx becomes C:\\Users\\xxx
+				// On Unix, no escaping needed for forward slashes
+				if runtime.GOOS == "windows" {
+					escapedHomeDir := strings.ReplaceAll(homeDir, "\\", "\\\\")
+					debugJSON = strings.ReplaceAll(debugJSON, escapedHomeDir, "~")
+				} else {
+					debugJSON = strings.ReplaceAll(debugJSON, homeDir, "~")
+				}
 			}
 
-			// Add separator at top and bottom
-			separator := strings.Repeat("-", 60)
-			content := fmt.Sprintf("%s\nTimestamp: %s\nFile: %s\n%s\n\n%s\n%s\n",
-				separator,
-				time.Now().Format("2006-01-02 15:04:05"),
-				debugFile,
-				separator,
-				prettyJSON.String(),
-				separator,
-			)
+			// Build new entry: timestamp line + JSON line
 
-			if err := os.WriteFile(debugFile, []byte(content), 0644); err != nil {
+			// Read existing lines
+			var lines []string
+			if existingData, err := os.ReadFile(debugFile); err == nil {
+				lines = strings.Split(string(existingData), "\n")
+				// Remove empty lines
+				var cleanLines []string
+				for _, line := range lines {
+					if strings.TrimSpace(line) != "" {
+						cleanLines = append(cleanLines, line)
+					}
+				}
+				lines = cleanLines
+			}
+
+			// Prepend new entry (2 lines)
+			lines = append([]string{time.Now().Format("2006-01-02 15:04:05"), debugJSON}, lines...)
+
+			// Keep only last 40 lines (20 entries)
+			const maxLines = 40
+			if len(lines) > maxLines {
+				lines = lines[:maxLines]
+			}
+
+			// Write back
+			finalContent := strings.Join(lines, "\n") + "\n"
+			if err := os.WriteFile(debugFile, []byte(finalContent), 0644); err != nil {
 				fmt.Fprintf(os.Stderr, "Debug: failed to write debug file: %v\n", err)
 			} else {
-				fmt.Fprintf(os.Stderr, "Debug: wrote to %s\n", debugFile)
+				fmt.Fprintf(os.Stderr, "Debug: wrote to %s (%d entries)\n", debugFile, len(lines)/2)
 			}
 		}
 	}

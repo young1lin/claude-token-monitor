@@ -124,6 +124,46 @@ Overrides global settings for specific projects.
 | `STATUSLINE_NO_COLOR` | `1` | Disable ANSI colors |
 | `STATUSLINE_COMPACT` | `1` | Enable compact mode |
 
+### Debug Mode (`--debug`)
+
+Add `--debug` flag to the command to enable debug logging:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\\\Users\\\\YourName\\\\statusline.exe --debug"
+  }
+}
+```
+
+**Debug File Format** (`statusline.debug` in same directory as executable):
+- Each entry: one line timestamp + one line raw JSON
+- Keeps last 20 entries (40 lines max)
+- New entries prepended at top
+
+```
+2026-02-15 01:55:06
+{"session_id":"...","transcript_path":"~\\.claude\\...","cwd":"C:\\Project"}
+2026-02-15 01:54:30
+{"session_id":"...","transcript_path":"~\\.claude\\...","cwd":"C:\\Project"}
+```
+
+**Privacy**: User home directory is automatically masked as `~` for privacy:
+- Windows: `C:\Users\Username` → `~`
+- macOS/Linux: `/Users/username` or `/home/username` → `~`
+
+**Implementation** (`cmd/statusline/main.go`):
+```go
+// On Windows, JSON escapes backslashes: C:\Users\xxx → C:\\Users\\xxx
+if runtime.GOOS == "windows" {
+    escapedHomeDir := strings.ReplaceAll(homeDir, "\\", "\\\\")
+    debugJSON = strings.ReplaceAll(debugJSON, escapedHomeDir, "~")
+} else {
+    debugJSON = strings.ReplaceAll(debugJSON, homeDir, "~")
+}
+```
+
 ## StatusLine Output Format
 
 ### Single-Line Mode (default)
