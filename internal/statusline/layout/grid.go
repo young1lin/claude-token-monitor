@@ -36,10 +36,10 @@ func DefaultLayout() *Layout {
 // NewGrid creates a new grid with the given content
 func NewGrid(layout *Layout, content CellContent) *Grid {
 	grid := &Grid{
-		Layout:  layout,
-		Content: content,
-		Rows:    make([]GridRow, 4), // 4 rows
-		ColWidths: make([]int, 4),   // 4 columns
+		Layout:    layout,
+		Content:   content,
+		Rows:      make([]GridRow, 4), // 4 rows
+		ColWidths: make([]int, 4),     // 4 columns
 	}
 
 	// Initialize rows

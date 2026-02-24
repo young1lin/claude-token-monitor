@@ -9,10 +9,10 @@ import (
 
 func TestTokenComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *TokenComposer
-		contents   map[content.ContentType]string
-		want       string
+		name     string
+		composer *TokenComposer
+		contents map[content.ContentType]string
+		want     string
 	}{
 		{
 			name:     "default composer with all fields",
@@ -104,11 +104,11 @@ func TestTokenComposer_Compose(t *testing.T) {
 		{
 			name: "custom config with custom prefix/suffix",
 			composer: NewTokenComposerFromConfig(TokenComposerConfig{
-				Name:    "custom",
-				ShowBar: true,
+				Name:     "custom",
+				ShowBar:  true,
 				ShowInfo: false,
-				Prefix:  "{",
-				Suffix:  "}",
+				Prefix:   "{",
+				Suffix:   "}",
 			}),
 			contents: map[content.ContentType]string{
 				content.ContentModel:    "GLM-4.7",
@@ -162,9 +162,9 @@ func TestTokenComposer_Name(t *testing.T) {
 
 func TestTokenComposer_InputTypes(t *testing.T) {
 	tests := []struct {
-		name        string
-		composer    *TokenComposer
-		wantLength  int
+		name         string
+		composer     *TokenComposer
+		wantLength   int
 		wantContains []content.ContentType
 	}{
 		{

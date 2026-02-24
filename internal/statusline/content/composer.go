@@ -23,10 +23,10 @@ type Composer interface {
 
 // BaseComposer provides a template-based composer implementation
 type BaseComposer struct {
-	name     string
+	name       string
 	inputTypes []ContentType
-	template string
-	parsed   *template.Template // Pre-parsed template for performance
+	template   string
+	parsed     *template.Template // Pre-parsed template for performance
 }
 
 // NewBaseComposer creates a new template-based composer with pre-parsed template

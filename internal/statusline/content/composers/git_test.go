@@ -9,10 +9,10 @@ import (
 
 func TestGitComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *GitComposer
-		contents   map[content.ContentType]string
-		want       string
+		name     string
+		composer *GitComposer
+		contents map[content.ContentType]string
+		want     string
 	}{
 		{
 			name:     "default composer with all fields",
@@ -171,9 +171,9 @@ func TestGitComposer_Name(t *testing.T) {
 
 func TestGitComposer_InputTypes(t *testing.T) {
 	tests := []struct {
-		name        string
-		composer    *GitComposer
-		wantLength  int
+		name         string
+		composer     *GitComposer
+		wantLength   int
 		wantContains []content.ContentType
 	}{
 		{

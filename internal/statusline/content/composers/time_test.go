@@ -9,10 +9,10 @@ import (
 
 func TestTimeQuotaComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *TimeQuotaComposer
-		contents   map[content.ContentType]string
-		want       string
+		name     string
+		composer *TimeQuotaComposer
+		contents map[content.ContentType]string
+		want     string
 	}{
 		{
 			name:     "default composer with time and quota",
@@ -145,9 +145,9 @@ func TestTimeQuotaComposer_Name(t *testing.T) {
 
 func TestTimeQuotaComposer_InputTypes(t *testing.T) {
 	tests := []struct {
-		name        string
-		composer    *TimeQuotaComposer
-		wantLength  int
+		name         string
+		composer     *TimeQuotaComposer
+		wantLength   int
 		wantContains []content.ContentType
 	}{
 		{

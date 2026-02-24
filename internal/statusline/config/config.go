@@ -32,7 +32,7 @@ type FormatConfig struct {
 
 // ContentConfig controls content composition
 type ContentConfig struct {
-	Composers []ComposerConfig `yaml:"composers"`
+	Composers []ComposerConfig  `yaml:"composers"`
 	Use       map[string]string `yaml:"use"` // Override default composers
 }
 

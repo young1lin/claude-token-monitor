@@ -7,8 +7,8 @@ import (
 // BaseCollector provides common functionality for collectors
 type BaseCollector struct {
 	contentType ContentType
-	cacheTTL     time.Duration
-	optional     bool
+	cacheTTL    time.Duration
+	optional    bool
 }
 
 // Type returns the content type
@@ -30,7 +30,7 @@ func (b *BaseCollector) Optional() bool {
 func NewBaseCollector(contentType ContentType, cacheTTL time.Duration, optional bool) *BaseCollector {
 	return &BaseCollector{
 		contentType: contentType,
-		cacheTTL:     cacheTTL,
-		optional:     optional,
+		cacheTTL:    cacheTTL,
+		optional:    optional,
 	}
 }

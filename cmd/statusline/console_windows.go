@@ -10,12 +10,12 @@ import (
 
 // Windows API functions for console control
 var (
-	modkernel32                  = syscall.NewLazyDLL("kernel32.dll")
-	procSetConsoleOutputCP       = modkernel32.NewProc("SetConsoleOutputCP")
-	procSetConsoleCP             = modkernel32.NewProc("SetConsoleCP")
-	procGetConsoleMode           = modkernel32.NewProc("GetConsoleMode")
-	procSetConsoleMode           = modkernel32.NewProc("SetConsoleMode")
-	procGetStdHandle             = modkernel32.NewProc("GetStdHandle")
+	modkernel32            = syscall.NewLazyDLL("kernel32.dll")
+	procSetConsoleOutputCP = modkernel32.NewProc("SetConsoleOutputCP")
+	procSetConsoleCP       = modkernel32.NewProc("SetConsoleCP")
+	procGetConsoleMode     = modkernel32.NewProc("GetConsoleMode")
+	procSetConsoleMode     = modkernel32.NewProc("SetConsoleMode")
+	procGetStdHandle       = modkernel32.NewProc("GetStdHandle")
 )
 
 const (

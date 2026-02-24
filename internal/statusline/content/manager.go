@@ -10,10 +10,10 @@ import (
 
 // Manager manages content collectors, composers, and caching
 type Manager struct {
-	collectors   map[ContentType]ContentCollector
-	composers    *Registry
-	cache        map[ContentType]*cachedContent
-	cacheMu      sync.RWMutex
+	collectors map[ContentType]ContentCollector
+	composers  *Registry
+	cache      map[ContentType]*cachedContent
+	cacheMu    sync.RWMutex
 }
 
 // NewManager creates a new content manager

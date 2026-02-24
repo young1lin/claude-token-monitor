@@ -7,10 +7,10 @@ import (
 
 func TestBaseComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *BaseComposer
-		contents   map[ContentType]string
-		want       string
+		name     string
+		composer *BaseComposer
+		contents map[ContentType]string
+		want     string
 	}{
 		{
 			name: "simple template with dot notation",
@@ -117,10 +117,10 @@ func TestBaseComposer_InputTypes(t *testing.T) {
 
 func TestSimpleComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *SimpleComposer
-		contents   map[ContentType]string
-		want       string
+		name     string
+		composer *SimpleComposer
+		contents map[ContentType]string
+		want     string
 	}{
 		{
 			name: "join with space",
@@ -196,10 +196,10 @@ func TestSimpleComposer_Compose(t *testing.T) {
 
 func TestFormatComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *FormatComposer
-		contents   map[ContentType]string
-		want       string
+		name     string
+		composer *FormatComposer
+		contents map[ContentType]string
+		want     string
 	}{
 		{
 			name: "custom format function",
@@ -251,10 +251,10 @@ func TestFormatComposer_Compose(t *testing.T) {
 
 func TestConditionalComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *ConditionalComposer
-		contents   map[ContentType]string
-		want       string
+		name     string
+		composer *ConditionalComposer
+		contents map[ContentType]string
+		want     string
 	}{
 		{
 			name: "matches first pattern with all fields",
@@ -369,10 +369,10 @@ func TestConditionalComposer_Compose(t *testing.T) {
 
 func TestPassthroughComposer_Compose(t *testing.T) {
 	tests := []struct {
-		name       string
-		composer   *PassthroughComposer
-		contents   map[ContentType]string
-		want       string
+		name     string
+		composer *PassthroughComposer
+		contents map[ContentType]string
+		want     string
 	}{
 		{
 			name: "returns first non-empty",

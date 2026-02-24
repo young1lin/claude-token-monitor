@@ -14,10 +14,10 @@ import (
 
 // TranscriptEntry represents a single entry in the transcript JSONL file
 type TranscriptEntry struct {
-	Type      string            `json:"type"`
-	Message   *MessageContent   `json:"message,omitempty"`
-	Timestamp string            `json:"timestamp,omitempty"`
-	GitBranch string            `json:"git_branch,omitempty"`
+	Type      string          `json:"type"`
+	Message   *MessageContent `json:"message,omitempty"`
+	Timestamp string          `json:"timestamp,omitempty"`
+	GitBranch string          `json:"git_branch,omitempty"`
 }
 
 // MessageContent represents the message content in a transcript entry.
@@ -63,20 +63,20 @@ type ContentItem struct {
 
 // TranscriptSummary contains parsed information from the transcript
 type TranscriptSummary struct {
-	GitBranch       string
-	GitStatus       string
-	ActiveTools     []string
-	CompletedTools  map[string]int
-	FailedTools     map[string]int
-	Agents          []AgentInfo
-	TodoTotal       int
-	TodoCompleted   int
-	SessionStart    time.Time
-	SessionEnd      time.Time
-	TotalTokens     int
-	InputTokens     int
-	OutputTokens    int
-	CacheTokens     int
+	GitBranch      string
+	GitStatus      string
+	ActiveTools    []string
+	CompletedTools map[string]int
+	FailedTools    map[string]int
+	Agents         []AgentInfo
+	TodoTotal      int
+	TodoCompleted  int
+	SessionStart   time.Time
+	SessionEnd     time.Time
+	TotalTokens    int
+	InputTokens    int
+	OutputTokens   int
+	CacheTokens    int
 }
 
 // AgentInfo represents information about a running agent
@@ -90,9 +90,9 @@ type AgentInfo struct {
 
 // TokenUsage represents token usage information
 type TokenUsage struct {
-	InputTokens           int `json:"input_tokens"`
-	OutputTokens          int `json:"output_tokens"`
-	CacheReadInputTokens  int `json:"cache_read_input_tokens"`
+	InputTokens          int `json:"input_tokens"`
+	OutputTokens         int `json:"output_tokens"`
+	CacheReadInputTokens int `json:"cache_read_input_tokens"`
 }
 
 // In-memory cache — only useful when the same process calls this function
