@@ -25,7 +25,7 @@ func NewGitComposer() *GitComposer {
 
 			line := ""
 			if branch != "" {
-				line = "🌿 " + branch
+				line = "🌿 " + content.TruncateBranch(branch)
 			}
 			if status != "" {
 				if line != "" {
@@ -54,7 +54,7 @@ func NewGitComposerBranchOnly() *GitComposer {
 		}, func(contents map[content.ContentType]string) string {
 			branch := contents[content.ContentGitBranch]
 			if branch != "" {
-				return "🌿 " + branch
+				return "🌿 " + content.TruncateBranch(branch)
 			}
 			return ""
 		}),
@@ -73,7 +73,7 @@ func NewGitComposerWithStatus() *GitComposer {
 
 			line := ""
 			if branch != "" {
-				line = "🌿 " + branch
+				line = "🌿 " + content.TruncateBranch(branch)
 			}
 			if status != "" {
 				if line != "" {
@@ -128,10 +128,11 @@ func NewGitComposerFromConfig(cfg GitComposerConfig) *GitComposer {
 
 			line := ""
 			if branch != "" {
+				truncated := content.TruncateBranch(branch)
 				if cfg.BranchPrefix != "" {
-					line = cfg.BranchPrefix + branch
+					line = cfg.BranchPrefix + truncated
 				} else {
-					line = branch
+					line = truncated
 				}
 			}
 			if cfg.ShowStatus && status != "" {

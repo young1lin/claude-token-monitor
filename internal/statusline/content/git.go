@@ -185,6 +185,16 @@ func formatGitStatus(added, deleted, modified int) string {
 	return strings.Join(statusParts, " ")
 }
 
+// TruncateBranch limits branch name display length to 25 characters.
+// Uses rune slicing for proper Unicode handling.
+func TruncateBranch(branch string) string {
+	runes := []rune(branch)
+	if len(runes) > 25 {
+		return string(runes[:22]) + ".."
+	}
+	return branch
+}
+
 // getGitBranch reads the current git branch
 func getGitBranch(cwd string) string {
 	if cwd == "" {

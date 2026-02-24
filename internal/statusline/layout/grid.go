@@ -8,7 +8,7 @@ import "github.com/mattn/go-runewidth"
 //
 //	Row 0: Folder | Token (composed: model+token-bar+token-info) | Version
 //	Row 1: Git (composed: branch+status+remote) | Memory-files | Skills
-//	Row 2: Time-Quota | Agent | Todo + Session-duration
+//	Row 2: Time-Quota | Agent | Todo
 //	Row 3: Tool status detail (unaligned, per-tool ✓/✖ breakdown)
 func DefaultLayout() *Layout {
 	return &Layout{
@@ -23,11 +23,9 @@ func DefaultLayout() *Layout {
 			{ContentType: "memory-files", Position: Position{Row: 1, Col: 1}, Optional: true},
 			{ContentType: "skills", Position: Position{Row: 1, Col: 2}, Optional: true},
 
-			// Row 2: time-quota (moved from Row 3) | agent | todo + session-duration
 			{ContentType: "time-quota", Position: Position{Row: 2, Col: 0}, Optional: false},
 			{ContentType: "agent", Position: Position{Row: 2, Col: 1}, Optional: true},
 			{ContentType: "todo", Position: Position{Row: 2, Col: 2}, Optional: true},
-			{ContentType: "session-duration", Position: Position{Row: 2, Col: 2}, Optional: true},
 
 			// Row 3: per-tool status detail, full-width, NOT column-aligned
 			{ContentType: "tool-status-detail", Position: Position{Row: 3, Col: 0}, Optional: true, NoAlign: true},

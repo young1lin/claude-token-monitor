@@ -175,6 +175,55 @@ func TestGetGitDataParallelAllFields(t *testing.T) {
 	// Remote might be empty (no remote configured), that's OK
 }
 
+func TestTruncateBranch(t *testing.T) {
+	tests := []struct {
+		name     string
+		branch   string
+		expected string
+	}{
+		// Short branches — unchanged
+		{"empty branch", "", ""},
+		{"main branch", "main", "main"},
+		{"develop branch", "develop", "develop"},
+		// Exactly 25 chars — unchanged
+		{
+			name:     "exactly 25 chars",
+			branch:   "feature/25-characters-br!",
+			expected: "feature/25-characters-br!",
+		},
+		// 26+ chars — truncated to first 22 + ".."
+		{
+			name:     "26 chars truncated",
+			branch:   "feature/26-characters-br!!",
+			expected: "feature/26-characters-..",
+		},
+		{
+			name:     "long feature branch",
+			branch:   "feature/young1lin/refactor-branch-cell",
+			expected: "feature/young1lin/refa..",
+		},
+		{
+			name:     "long fix branch",
+			branch:   "fix/some-very-long-descriptive-bugfix-branch-name",
+			expected: "fix/some-very-long-des..",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange: input is in the test table
+
+			// Act
+			got := TruncateBranch(tt.branch)
+
+			// Assert
+			if got != tt.expected {
+				t.Errorf("TruncateBranch(%q) = %q, want %q", tt.branch, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestFormatGitStatus(t *testing.T) {
 	tests := []struct {
 		name     string
