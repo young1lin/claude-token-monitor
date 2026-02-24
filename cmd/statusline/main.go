@@ -233,6 +233,7 @@ func convertToContentSummary(parserSummary *parser.TranscriptSummary) *content.T
 		GitStatus:      parserSummary.GitStatus,
 		ActiveTools:    parserSummary.ActiveTools,
 		CompletedTools: parserSummary.CompletedTools,
+		FailedTools:    parserSummary.FailedTools,
 		Agents:         agents,
 		TodoTotal:      parserSummary.TodoTotal,
 		TodoCompleted:  parserSummary.TodoCompleted,
@@ -260,6 +261,7 @@ func registerAllCollectors(mgr *content.Manager) {
 		content.NewSessionDurationCollector(),
 		content.NewCurrentTimeCollector(),
 		content.NewQuotaCollector(),
+		content.NewToolStatusDetailCollector(),
 	)
 }
 

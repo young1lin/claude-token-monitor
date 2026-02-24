@@ -22,10 +22,11 @@ const (
 	ContentAgent           ContentType = "agent"
 	ContentTodo            ContentType = "todo"
 	ContentTools           ContentType = "tools"
-	ContentCurrentTime     ContentType = "current-time"
-	ContentSessionDuration ContentType = "session-duration"
-	ContentSkills          ContentType = "skills"
-	ContentQuota           ContentType = "quota"
+	ContentCurrentTime       ContentType = "current-time"
+	ContentSessionDuration   ContentType = "session-duration"
+	ContentSkills            ContentType = "skills"
+	ContentQuota             ContentType = "quota"
+	ContentToolStatusDetail  ContentType = "tool-status-detail"
 )
 
 // Content represents a content fragment

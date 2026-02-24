@@ -2,6 +2,8 @@ package content
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -122,6 +124,74 @@ func (c *SessionDurationCollector) Collect(input interface{}, summary interface{
 		duration = time.Since(transcriptSummary.SessionStart)
 	}
 	return fmt.Sprintf("⏱️ %s", formatDuration(duration)), nil
+}
+
+// ToolStatusDetailCollector collects per-tool success/failure breakdown
+type ToolStatusDetailCollector struct {
+	*BaseCollector
+}
+
+// NewToolStatusDetailCollector creates a new tool status detail collector
+func NewToolStatusDetailCollector() *ToolStatusDetailCollector {
+	return &ToolStatusDetailCollector{
+		BaseCollector: NewBaseCollector(ContentToolStatusDetail, 5*time.Second, true),
+	}
+}
+
+// Collect returns per-tool call breakdown with success/failure indicators
+func (c *ToolStatusDetailCollector) Collect(input interface{}, summary interface{}) (string, error) {
+	transcriptSummary, ok := summary.(*TranscriptSummary)
+	if !ok {
+		return "", fmt.Errorf("invalid summary type")
+	}
+
+	if len(transcriptSummary.CompletedTools) == 0 && len(transcriptSummary.FailedTools) == 0 {
+		return "", nil
+	}
+
+	const (
+		green = "\x1b[1;32m"
+		red   = "\x1b[1;31m"
+		reset = "\x1b[0m"
+	)
+
+	// Build sorted list of successful tools (by count desc)
+	type toolEntry struct {
+		name  string
+		count int
+	}
+
+	var successEntries []toolEntry
+	for name, count := range transcriptSummary.CompletedTools {
+		successEntries = append(successEntries, toolEntry{name, count})
+	}
+	sort.Slice(successEntries, func(i, j int) bool {
+		if successEntries[i].count != successEntries[j].count {
+			return successEntries[i].count > successEntries[j].count
+		}
+		return successEntries[i].name < successEntries[j].name
+	})
+
+	var failedEntries []toolEntry
+	for name, count := range transcriptSummary.FailedTools {
+		failedEntries = append(failedEntries, toolEntry{name, count})
+	}
+	sort.Slice(failedEntries, func(i, j int) bool {
+		if failedEntries[i].count != failedEntries[j].count {
+			return failedEntries[i].count > failedEntries[j].count
+		}
+		return failedEntries[i].name < failedEntries[j].name
+	})
+
+	var parts []string
+	for _, e := range successEntries {
+		parts = append(parts, fmt.Sprintf("%s✓%s %s(%d)", green, reset, e.name, e.count))
+	}
+	for _, e := range failedEntries {
+		parts = append(parts, fmt.Sprintf("%s✖%s %s(%d)", red, reset, e.name, e.count))
+	}
+
+	return strings.Join(parts, " "), nil
 }
 
 // formatDuration formats a duration as a human-readable string

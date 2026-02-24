@@ -329,6 +329,7 @@ func clearTranscriptCache() {
 	transcriptCacheMu.Lock()
 	transcriptCache = nil
 	transcriptCachePath = ""
-	transcriptCacheTime = time.Time{}
+	transcriptCacheMtime = time.Time{}
+	transcriptCacheParseTime = time.Time{}
 	transcriptCacheMu.Unlock()
 }

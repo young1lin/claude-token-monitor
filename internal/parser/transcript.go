@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,19 +20,45 @@ type TranscriptEntry struct {
 	GitBranch string            `json:"git_branch,omitempty"`
 }
 
-// MessageContent represents the message content in a transcript entry
+// MessageContent represents the message content in a transcript entry.
+// The "content" field in Claude Code's JSONL is polymorphic:
+//   - string  → user typed a text message  (e.g. "你确定吗？")
+//   - array   → tool_use / tool_result items
+//
+// We keep it as json.RawMessage so both cases are preserved after unmarshaling.
 type MessageContent struct {
-	Model   string        `json:"model,omitempty"`
-	Content []ContentItem `json:"content,omitempty"`
-	Usage   TokenUsage    `json:"usage,omitempty"`
+	Model   string          `json:"model,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
+	Usage   TokenUsage      `json:"usage,omitempty"`
+}
+
+// isTextContent reports whether the message content is a plain string
+// (i.e. the user typed a text message, as opposed to a tool result batch).
+func (m *MessageContent) isTextContent() bool {
+	return len(m.Content) > 0 && m.Content[0] == '"'
+}
+
+// contentItems parses and returns the content array for tool_use / tool_result
+// messages. Returns nil when content is a string (user text message).
+func (m *MessageContent) contentItems() []ContentItem {
+	if len(m.Content) == 0 || m.Content[0] != '[' {
+		return nil
+	}
+	var items []ContentItem
+	if json.Unmarshal(m.Content, &items) != nil {
+		return nil
+	}
+	return items
 }
 
 // ContentItem represents a single content item (text or tool_use)
 type ContentItem struct {
-	Type  string                 `json:"type"`
-	Name  string                 `json:"name,omitempty"`
-	ID    string                 `json:"id,omitempty"`
-	Input map[string]interface{} `json:"input,omitempty"`
+	Type      string                 `json:"type"`
+	Name      string                 `json:"name,omitempty"`
+	ID        string                 `json:"id,omitempty"`
+	ToolUseID string                 `json:"tool_use_id,omitempty"`
+	IsError   bool                   `json:"is_error,omitempty"`
+	Input     map[string]interface{} `json:"input,omitempty"`
 }
 
 // TranscriptSummary contains parsed information from the transcript
@@ -42,6 +67,7 @@ type TranscriptSummary struct {
 	GitStatus       string
 	ActiveTools     []string
 	CompletedTools  map[string]int
+	FailedTools     map[string]int
 	Agents          []AgentInfo
 	TodoTotal       int
 	TodoCompleted   int
@@ -69,40 +95,45 @@ type TokenUsage struct {
 	CacheReadInputTokens  int `json:"cache_read_input_tokens"`
 }
 
-// Transcript parse cache with mtime tracking
+// In-memory cache — only useful when the same process calls this function
+// multiple times (e.g. several content collectors within one invocation).
 var (
-	transcriptCache     *TranscriptSummary
-	transcriptCachePath string
-	transcriptCacheMu   sync.RWMutex
-	transcriptCacheTime time.Time
-	transcriptCacheTTL  = 5 * time.Second
+	transcriptCache          *TranscriptSummary
+	transcriptCachePath      string
+	transcriptCacheMu        sync.RWMutex
+	transcriptCacheMtime     time.Time // file mtime recorded at last parse
+	transcriptCacheParseTime time.Time // wall time of last parse (for TTL)
+	transcriptCacheTTL       = 5 * time.Second
 )
 
-// ParseTranscriptLastNLines reads and parses the last N lines of a transcript file
+// ParseTranscriptLastNLines reads and parses the transcript file
 func ParseTranscriptLastNLines(transcriptPath string, n int) (*TranscriptSummary, error) {
 	return ParseTranscriptLastNLinesWithProjectPath(transcriptPath, n, "")
 }
 
-// ParseTranscriptLastNLinesWithProjectPath parses transcript with optional project path for git detection
-// If projectPath is provided and no git branch is found in transcript, it will use git commands
-func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, n int, projectPath string) (*TranscriptSummary, error) {
+// ParseTranscriptLastNLinesWithProjectPath parses the transcript.
+// Reads up to 512 KB from the end of the file to cover a full turn's entries
+// even when tool results contain large file contents (e.g. the Read tool).
+func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, _ int, projectPath string) (*TranscriptSummary, error) {
 	if transcriptPath == "" {
 		return &TranscriptSummary{}, nil
 	}
 
-	// Check cache with mtime optimization
+	// Stat first — O(1), no file content read.
+	info, err := os.Stat(transcriptPath)
+	if err != nil {
+		return &TranscriptSummary{}, nil
+	}
+	fileMtime := info.ModTime()
 	now := time.Now()
+
+	// In-memory cache: helps when multiple collectors call this within one invocation.
 	transcriptCacheMu.RLock()
-	if transcriptCache != nil && transcriptCachePath == transcriptPath {
-		// Check if file was modified since last parse
-		if info, err := os.Stat(transcriptPath); err == nil {
-			if info.ModTime().Equal(transcriptCacheTime) && now.Sub(transcriptCacheTime) < transcriptCacheTTL {
-				// File hasn't been modified and cache is still valid
-				cached := *transcriptCache
-				transcriptCacheMu.RUnlock()
-				return &cached, nil
-			}
-		}
+	if transcriptCache != nil && transcriptCachePath == transcriptPath &&
+		transcriptCacheMtime.Equal(fileMtime) && now.Sub(transcriptCacheParseTime) < transcriptCacheTTL {
+		cached := *transcriptCache
+		transcriptCacheMu.RUnlock()
+		return &cached, nil
 	}
 	transcriptCacheMu.RUnlock()
 
@@ -112,65 +143,110 @@ func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, n int, proj
 	}
 	defer file.Close()
 
-	// Get file size for seeking
 	stat, err := file.Stat()
 	if err != nil {
 		return &TranscriptSummary{}, nil
 	}
 
-	// Store the modification time for caching
-	fileModTime := stat.ModTime()
-
-	// Seek to end - 64KB (enough for ~100 lines of JSON)
-	offset := stat.Size() - 65536
-	if offset < 0 {
-		offset = 0
-	}
-	file.Seek(offset, io.SeekStart)
-
-	// Read line by line
-	scanner := bufio.NewScanner(file)
-	var entries []TranscriptEntry
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var entry TranscriptEntry
-		if err := json.Unmarshal(line, &entry); err != nil {
-			continue
-		}
-
-		entries = append(entries, entry)
-		// Keep only the last N entries
-		if len(entries) > n {
-			entries = entries[len(entries)-n:]
-		}
-	}
-
+	entries := readCurrentTurnEntries(file, stat.Size())
 	summary := analyzeTranscriptEntries(entries)
 
-	// If no git branch found in transcript and project path is provided, try git commands
 	if summary.GitBranch == "" && projectPath != "" {
 		summary.GitBranch = getGitBranchForPath(projectPath)
 	}
 
-	// Update cache with new result and file modification time
 	transcriptCacheMu.Lock()
 	transcriptCache = summary
 	transcriptCachePath = transcriptPath
-	transcriptCacheTime = fileModTime
+	transcriptCacheMtime = fileMtime
+	transcriptCacheParseTime = now
 	transcriptCacheMu.Unlock()
 
 	return summary, nil
 }
 
-// analyzeTranscriptEntries extracts useful information from transcript entries
+// readCurrentTurnEntries reads up to 512 KB from the end of the file,
+// scans backwards to locate the last real user message, then fully parses
+// only the entries from that message to EOF.
+//
+// Large tool-result entries (e.g. the Read tool embeds the entire file content)
+// that predate the current turn are skipped with a cheap string check, avoiding
+// unnecessary JSON deserialization of hundreds of KB.
+func readCurrentTurnEntries(f *os.File, fileSize int64) []TranscriptEntry {
+	if fileSize == 0 {
+		return nil
+	}
+
+	const readWindow = 512 * 1024
+	offset := fileSize - readWindow
+	if offset < 0 {
+		offset = 0
+	}
+
+	buf := make([]byte, fileSize-offset)
+	n, err := f.ReadAt(buf, offset)
+	if err != nil && err != io.EOF {
+		return nil
+	}
+
+	// Collect non-empty lines (JSONL).
+	rawLines := strings.Split(string(buf[:n]), "\n")
+	var lines []string
+	for _, l := range rawLines {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+
+	// Scan backwards to find the last real user message.
+	// Use a cheap contains check before full JSON parsing so that large
+	// tool-result or assistant lines (which cannot be user messages) are
+	// skipped without deserializing their contents.
+	startIdx := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !strings.Contains(lines[i], `"type":"user"`) {
+			continue
+		}
+		var entry TranscriptEntry
+		if json.Unmarshal([]byte(lines[i]), &entry) != nil {
+			continue
+		}
+		if isRealUserMessage(entry) {
+			startIdx = i
+			break
+		}
+	}
+
+	// Fully parse only the current-turn entries (user message → EOF).
+	entries := make([]TranscriptEntry, 0, len(lines)-startIdx)
+	for _, line := range lines[startIdx:] {
+		var entry TranscriptEntry
+		if json.Unmarshal([]byte(line), &entry) == nil {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// isRealUserMessage returns true when the entry is a genuine user text message,
+// as opposed to a tool_result submission (which also has type "user").
+// isRealUserMessage returns true when the entry is a genuine user text message.
+// In Claude Code's JSONL, user text messages have message.content as a JSON
+// string, while tool_result submissions have it as an array.
+func isRealUserMessage(entry TranscriptEntry) bool {
+	return entry.Type == "user" && entry.Message != nil && entry.Message.isTextContent()
+}
+
+// analyzeTranscriptEntries extracts useful information from transcript entries.
+// Tool call statistics (CompletedTools / FailedTools / ActiveTools) are scoped
+// to the current turn — entries that appear after the last real user message.
+// Session-level information (git branch, timestamps, agents, todos) is gathered
+// from all entries.
 func analyzeTranscriptEntries(entries []TranscriptEntry) *TranscriptSummary {
 	summary := &TranscriptSummary{
 		CompletedTools: make(map[string]int),
+		FailedTools:    make(map[string]int),
 		Agents:         []AgentInfo{},
 	}
 
@@ -178,18 +254,30 @@ func analyzeTranscriptEntries(entries []TranscriptEntry) *TranscriptSummary {
 		return summary
 	}
 
-	// Track tool calls for completion counting
-	allTools := make(map[string]int)
-	pendingTools := make(map[string]bool)
+	// Find the index of the last real user message.
+	// Tool tracking starts from that point so we only show tools used in the
+	// current turn (from the user's most recent prompt onward).
+	lastUserMsgIdx := -1
+	for i := len(entries) - 1; i >= 0; i-- {
+		if isRealUserMessage(entries[i]) {
+			lastUserMsgIdx = i
+			break
+		}
+	}
 
-	// Process in forward order
-	for _, entry := range entries {
-		// Extract git branch from most recent entry
+	// toolIDToName maps tool_use ID -> tool name (scoped to current turn)
+	toolIDToName := make(map[string]string)
+	// pendingIDs tracks tool_use IDs that have not yet received a result
+	pendingIDs := make(map[string]bool)
+
+	// Process all entries in forward order
+	for i, entry := range entries {
+		// ── Session-level info (whole history) ──────────────────────────────
+
 		if summary.GitBranch == "" && entry.GitBranch != "" {
 			summary.GitBranch = entry.GitBranch
 		}
 
-		// Extract timestamp for session duration
 		if entry.Timestamp != "" {
 			if t, err := time.Parse(time.RFC3339, entry.Timestamp); err == nil {
 				if summary.SessionStart.IsZero() || t.Before(summary.SessionStart) {
@@ -201,77 +289,79 @@ func analyzeTranscriptEntries(entries []TranscriptEntry) *TranscriptSummary {
 			}
 		}
 
-		// Parse tool usage and agent activity
 		if entry.Type == "assistant" && entry.Message != nil {
-			// Accumulate tokens
 			summary.InputTokens += entry.Message.Usage.InputTokens
 			summary.OutputTokens += entry.Message.Usage.OutputTokens
 			summary.CacheTokens += entry.Message.Usage.CacheReadInputTokens
 			summary.TotalTokens = summary.InputTokens + summary.OutputTokens
 
-			for _, content := range entry.Message.Content {
+			for _, content := range entry.Message.contentItems() {
 				if content.Type == "tool_use" {
-					toolName := content.Name
-
-					// Check if this is a Task (agent) call
-					if toolName == "Task" {
+					// Agents and todos are tracked across the full session
+					if content.Name == "Task" {
 						agentType := "general-purpose"
 						if subagentType, ok := content.Input["subagent_type"].(string); ok {
 							agentType = subagentType
 						}
-
 						agentDesc := ""
 						if desc, ok := content.Input["description"].(string); ok {
 							agentDesc = desc
 						}
-
-						// Directly add agent to summary
 						summary.Agents = append(summary.Agents, AgentInfo{
 							Type: agentType,
 							Desc: agentDesc,
 						})
-					} else if toolName == "TodoWrite" {
+					} else if content.Name == "TodoWrite" {
 						extractTodoInfo(content.Input, summary)
-					} else if toolName != "" {
-						allTools[toolName]++
-						pendingTools[toolName] = true
-
-						// Track active tools (avoid duplicates)
-						isDuplicate := false
-						for _, t := range summary.ActiveTools {
-							if t == toolName {
-								isDuplicate = true
-								break
-							}
-						}
-						if !isDuplicate {
-							summary.ActiveTools = append(summary.ActiveTools, toolName)
-						}
 					}
 				}
 			}
 		}
 
-		// Track completed tools
-		if entry.Type == "tool_result" && entry.Message != nil {
-			for _, content := range entry.Message.Content {
-				if content.Type == "tool_result" && content.ID != "" {
-					delete(pendingTools, content.Name)
-					break
+		// ── Tool call stats (current turn only) ─────────────────────────────
+		// Skip entries before (and including) the last real user message.
+		if i <= lastUserMsgIdx {
+			continue
+		}
+
+		if entry.Type == "assistant" && entry.Message != nil {
+			for _, content := range entry.Message.contentItems() {
+				if content.Type == "tool_use" && content.ID != "" && content.Name != "" &&
+					content.Name != "Task" && content.Name != "TodoWrite" {
+					toolIDToName[content.ID] = content.Name
+					pendingIDs[content.ID] = true
+				}
+			}
+		}
+
+		// tool_result entries come in as type "user" with content items of type "tool_result".
+		// Do NOT break early: parallel tool calls produce multiple tool_result items
+		// inside the same user entry.
+		if entry.Type == "user" && entry.Message != nil {
+			for _, content := range entry.Message.contentItems() {
+				if content.Type != "tool_result" {
+					continue
+				}
+				toolName := toolIDToName[content.ToolUseID]
+				if toolName != "" {
+					delete(pendingIDs, content.ToolUseID)
+					if content.IsError {
+						summary.FailedTools[toolName]++
+					} else {
+						summary.CompletedTools[toolName]++
+					}
 				}
 			}
 		}
 	}
 
-	// All tools counted in allTools are completed tools
-	for toolName, count := range allTools {
-		summary.CompletedTools[toolName] = count
-	}
-
-	// Clear ActiveTools - only show tools that are still pending
-	summary.ActiveTools = nil
-	for toolName := range pendingTools {
-		summary.ActiveTools = append(summary.ActiveTools, toolName)
+	// ActiveTools = tool_use calls in the current turn with no result yet
+	seenActive := make(map[string]bool)
+	for id := range pendingIDs {
+		if name, ok := toolIDToName[id]; ok && !seenActive[name] {
+			seenActive[name] = true
+			summary.ActiveTools = append(summary.ActiveTools, name)
+		}
 	}
 
 	return summary

@@ -42,11 +42,11 @@ type UsageApiResponse struct {
 
 // UsageData holds parsed usage information
 type UsageData struct {
-	FiveHour       float64
-	SevenDay       float64
-	FiveHourResetAt   time.Time
-	SevenDayResetAt   time.Time
-	APIUnavailable bool
+	FiveHour        float64
+	SevenDay        float64
+	FiveHourResetAt time.Time
+	SevenDayResetAt time.Time
+	APIUnavailable  bool
 }
 
 // CurrentTimeCollector collects the current time

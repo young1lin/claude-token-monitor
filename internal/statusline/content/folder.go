@@ -37,6 +37,7 @@ type TranscriptSummary struct {
 	GitStatus      string
 	ActiveTools    []string
 	CompletedTools map[string]int
+	FailedTools    map[string]int
 	Agents         []AgentInfo
 	TodoTotal      int
 	TodoCompleted  int

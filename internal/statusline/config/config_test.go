@@ -120,15 +120,15 @@ func TestLoadFile(t *testing.T) {
 	tempDir := t.TempDir()
 
 	tests := []struct {
-		name        string
-		configYAML  string
-		wantSingle  bool
-		wantShow    []string
-		wantHide    []string
+		name         string
+		configYAML   string
+		wantSingle   bool
+		wantShow     []string
+		wantHide     []string
 		wantProgress string
-		wantTime    string
-		wantCompact bool
-		wantErr     bool
+		wantTime     string
+		wantCompact  bool
+		wantErr      bool
 	}{
 		{
 			name: "valid minimal config",
@@ -136,9 +136,9 @@ func TestLoadFile(t *testing.T) {
 display:
   singleLine: true
 `,
-			wantSingle:  true,
+			wantSingle:   true,
 			wantProgress: "braille",
-			wantTime:    "24h",
+			wantTime:     "24h",
 		},
 		{
 			name: "valid full config",
@@ -179,8 +179,8 @@ format:
 			wantTime: "24h",
 		},
 		{
-			name: "empty config uses defaults",
-			configYAML: `{}`,
+			name:         "empty config uses defaults",
+			configYAML:   `{}`,
 			wantProgress: "braille",
 			wantTime:     "24h",
 		},
@@ -480,24 +480,24 @@ func TestComposerConfig(t *testing.T) {
 		}
 
 		tests := []struct {
-			name    string
+			name         string
 			composerName string
-			want    *ComposerConfig
+			want         *ComposerConfig
 		}{
 			{
-				name:    "finds existing composer",
+				name:         "finds existing composer",
 				composerName: "custom1",
-				want:    &comps[0],
+				want:         &comps[0],
 			},
 			{
-				name:    "finds another existing composer",
+				name:         "finds another existing composer",
 				composerName: "custom2",
-				want:    &comps[1],
+				want:         &comps[1],
 			},
 			{
-				name:    "returns nil for non-existent composer",
+				name:         "returns nil for non-existent composer",
 				composerName: "nonexistent",
-				want:    nil,
+				want:         nil,
 			},
 		}
 
@@ -555,7 +555,7 @@ content:
   use:
     token: my-token
 `,
-			wantComps: 1,
+			wantComps:    1,
 			wantOverride: map[string]string{"token": "my-token"},
 		},
 		{

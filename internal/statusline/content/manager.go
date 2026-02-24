@@ -87,35 +87,55 @@ func (m *Manager) Get(contentType ContentType, input interface{}, summary interf
 	return value, nil
 }
 
-// GetAll retrieves all content items
+// GetAll retrieves all content items in parallel
 func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType]string {
 	result := make(map[ContentType]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	for contentType := range m.collectors {
-		if value, err := m.Get(contentType, input, summary); err == nil && value != "" {
-			result[contentType] = value
-		}
+		wg.Add(1)
+		go func(ct ContentType) {
+			defer wg.Done()
+			if value, err := m.Get(ct, input, summary); err == nil && value != "" {
+				mu.Lock()
+				result[ct] = value
+				mu.Unlock()
+			}
+		}(contentType)
 	}
 
+	wg.Wait()
 	return result
 }
 
-// GetOptionalContent returns content for optional collectors that have values
+// GetOptionalContent returns content for optional collectors that have values, in parallel
 func (m *Manager) GetOptionalContent(input interface{}, summary interface{}) map[ContentType]string {
 	result := make(map[ContentType]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	for contentType, collector := range m.collectors {
-		if collector.Optional() {
-			if value, err := m.Get(contentType, input, summary); err == nil && value != "" {
-				result[contentType] = value
+		wg.Add(1)
+		go func(ct ContentType, col ContentCollector) {
+			defer wg.Done()
+			if col.Optional() {
+				if value, err := m.Get(ct, input, summary); err == nil && value != "" {
+					mu.Lock()
+					result[ct] = value
+					mu.Unlock()
+				}
+			} else {
+				if value, err := m.Get(ct, input, summary); err == nil {
+					mu.Lock()
+					result[ct] = value
+					mu.Unlock()
+				}
 			}
-		} else {
-			if value, err := m.Get(contentType, input, summary); err == nil {
-				result[contentType] = value
-			}
-		}
+		}(contentType, collector)
 	}
 
+	wg.Wait()
 	return result
 }
 

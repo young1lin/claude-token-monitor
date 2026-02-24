@@ -15,6 +15,12 @@ func displayWidth(s string) int {
 	return runewidth.StringWidth(ansiRegex.ReplaceAllString(s, ""))
 }
 
+// rowMeta holds a compacted row together with its alignment metadata
+type rowMeta struct {
+	cells   []string
+	noAlign bool
+}
+
 // Renderer renders a grid to output lines
 type Renderer struct {
 	grid *Grid
@@ -27,35 +33,46 @@ func NewRenderer(grid *Grid) *Renderer {
 
 // Render renders the grid to a slice of output lines
 func (r *Renderer) Render() []string {
-	// Step 1: Extract non-empty cells for each row (compact to left)
-	compactRows := r.compactRows()
+	// Step 1: Extract non-empty cells for each row (compact to left), preserving NoAlign flag
+	allRows := r.compactRowsWithMeta()
 
 	// Skip if no content
-	if len(compactRows) == 0 {
+	if len(allRows) == 0 {
 		return []string{}
 	}
 
-	// Step 2: Calculate column widths for alignment based on compactRows
-	colWidths := r.calculateColumnWidths(compactRows)
+	// Step 2: Calculate column widths using only aligned rows
+	var alignedCells [][]string
+	for _, row := range allRows {
+		if !row.noAlign {
+			alignedCells = append(alignedCells, row.cells)
+		}
+	}
+	colWidths := r.calculateColumnWidths(alignedCells)
 
-	// Step 3: Render each row with alignment
+	// Step 3: Render each row
 	lines := []string{}
-	for _, row := range compactRows {
-		if len(row) == 0 {
+	for _, row := range allRows {
+		if len(row.cells) == 0 {
 			continue
 		}
-		line := r.renderRowWithAlignment(row, colWidths)
+		var line string
+		if row.noAlign {
+			// No padding — just join the cells directly (no column alignment)
+			line = strings.Join(row.cells, " ")
+		} else {
+			line = r.renderRowWithAlignment(row.cells, colWidths)
+		}
 		lines = append(lines, line)
 	}
 
 	return lines
 }
 
-// compactRows removes empty cells and shifts content to the left
-// Returns a 2D slice where each row contains only non-empty cells
-// For cells containing " | ", they are split into multiple cells for proper alignment
-func (r *Renderer) compactRows() [][]string {
-	result := [][]string{}
+// compactRowsWithMeta removes empty cells and shifts content to the left,
+// preserving the NoAlign flag from each GridRow.
+func (r *Renderer) compactRowsWithMeta() []rowMeta {
+	result := []rowMeta{}
 
 	for _, row := range r.grid.Rows {
 		nonEmptyCells := []string{}
@@ -73,11 +90,24 @@ func (r *Renderer) compactRows() [][]string {
 		}
 		// Only add rows that have content
 		if len(nonEmptyCells) > 0 {
-			result = append(result, nonEmptyCells)
+			result = append(result, rowMeta{
+				cells:   nonEmptyCells,
+				noAlign: row.NoAlign,
+			})
 		}
 	}
 
 	return result
+}
+
+// compactRows returns a 2D slice for backward compatibility (used by tests)
+func (r *Renderer) compactRows() [][]string {
+	metas := r.compactRowsWithMeta()
+	rows := make([][]string, len(metas))
+	for i, m := range metas {
+		rows[i] = m.cells
+	}
+	return rows
 }
 
 // calculateColumnWidths calculates the width of each column for alignment

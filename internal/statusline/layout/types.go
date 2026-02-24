@@ -10,11 +10,12 @@ type Position struct {
 
 // Cell represents a cell in the grid
 type Cell struct {
-	ContentType  string
-	Position     Position
-	Span         int    // Number of columns to span (reserved for future use)
-	Optional     bool   // Skip this cell if content is empty
+	ContentType    string
+	Position       Position
+	Span           int    // Number of columns to span (reserved for future use)
+	Optional       bool   // Skip this cell if content is empty
 	AlignWhenEmpty string // How to align when this cell is empty: "left", "center", "right"
+	NoAlign        bool   // Skip column alignment for this cell's row
 }
 
 // Layout represents the grid layout
@@ -27,13 +28,14 @@ type CellContent map[string]string
 
 // GridRow represents a row in the grid with its content
 type GridRow struct {
-	Cells []string // Content for each column in this row
+	Cells   []string // Content for each column in this row
+	NoAlign bool     // When true, this row is not included in column width calculation
 }
 
 // Grid represents the complete grid with content
 type Grid struct {
-	Layout   *Layout
-	Content  CellContent
-	Rows     []GridRow
+	Layout    *Layout
+	Content   CellContent
+	Rows      []GridRow
 	ColWidths []int
 }
