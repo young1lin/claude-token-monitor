@@ -256,8 +256,16 @@ func writeRefreshedCache(usage *UsageData) error {
 	return writeUsageCache(cache)
 }
 
-// writeRefreshFailedCache writes failed refresh result
-func writeRefreshFailedCache() error {
+// writeRefreshFailedCache writes failed refresh result, preserving old data
+func writeRefreshFailedCache(oldCache *usageCacheData) error {
+	// Preserve old data if available, just update timestamps
+	if oldCache != nil {
+		oldCache.FetchedAt = time.Now()
+		oldCache.RefreshingSince = time.Time{}
+		// Don't set APIUnavailable if we have valid old data
+		return writeUsageCache(oldCache)
+	}
+	// No old data, record failure
 	cache := &usageCacheData{
 		FetchedAt:       time.Now(),
 		RefreshingSince: time.Time{},
@@ -267,8 +275,14 @@ func writeRefreshFailedCache() error {
 }
 
 // fallbackOrNil returns cache data as UsageData or nil
+// Returns old data even if API was unavailable (better than nothing)
 func fallbackOrNil(cache *usageCacheData) *UsageData {
-	if cache == nil || cache.APIUnavailable {
+	if cache == nil {
+		return nil
+	}
+	// Return old data even if APIUnavailable - it's better than nothing
+	// Only return nil if we have no data at all
+	if cache.FiveHour == 0 && cache.SevenDay == 0 {
 		return nil
 	}
 	return &UsageData{
@@ -356,8 +370,8 @@ func getSubscriptionUsage() *UsageData {
 
 	usage, err := fetchUsageAPI(creds.ClaudeAiOauth.AccessToken)
 	if err != nil || usage == nil {
-		// API failed, record failure state
-		writeRefreshFailedCache()
+		// API failed, record failure state (preserves old data)
+		writeRefreshFailedCache(cache)
 		return fallbackOrNil(cache)
 	}
 

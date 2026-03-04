@@ -328,7 +328,8 @@ func TestWriteRefreshFailedCache(t *testing.T) {
 	_, cleanup := setupTestCache(t)
 	defer cleanup()
 
-	if err := writeRefreshFailedCache(); err != nil {
+	// Test with no old cache - should mark APIUnavailable
+	if err := writeRefreshFailedCache(nil); err != nil {
 		t.Fatalf("writeRefreshFailedCache failed: %v", err)
 	}
 
@@ -338,10 +339,49 @@ func TestWriteRefreshFailedCache(t *testing.T) {
 		t.Fatal("Expected cache, got nil")
 	}
 	if !cache.APIUnavailable {
-		t.Error("APIUnavailable should be true after failed refresh")
+		t.Error("APIUnavailable should be true after failed refresh with no old data")
 	}
 	if !cache.RefreshingSince.IsZero() {
 		t.Error("RefreshingSince should be zero after failed refresh")
+	}
+}
+
+func TestWriteRefreshFailedCache_PreservesOldData(t *testing.T) {
+	_, cleanup := setupTestCache(t)
+	defer cleanup()
+
+	// First, write some valid data
+	now := time.Now()
+	oldCache := &usageCacheData{
+		FiveHour:        45.5,
+		SevenDay:        12.3,
+		FiveHourResetAt: now.Add(1 * time.Hour),
+		SevenDayResetAt: now.Add(24 * time.Hour),
+		FetchedAt:       now.Add(-1 * time.Minute),
+	}
+	if err := writeUsageCache(oldCache); err != nil {
+		t.Fatalf("writeUsageCache failed: %v", err)
+	}
+
+	// Simulate API failure - should preserve old data
+	readCache := readUsageCache()
+	if err := writeRefreshFailedCache(readCache); err != nil {
+		t.Fatalf("writeRefreshFailedCache failed: %v", err)
+	}
+
+	// Verify old data is preserved
+	cache := readUsageCache()
+	if cache == nil {
+		t.Fatal("Expected cache, got nil")
+	}
+	if cache.FiveHour != 45.5 {
+		t.Errorf("FiveHour = %f, want 45.5 (should be preserved)", cache.FiveHour)
+	}
+	if cache.SevenDay != 12.3 {
+		t.Errorf("SevenDay = %f, want 12.3 (should be preserved)", cache.SevenDay)
+	}
+	if cache.APIUnavailable {
+		t.Error("APIUnavailable should be false when old data is preserved")
 	}
 }
 
@@ -352,15 +392,32 @@ func TestFallbackOrNil_NilCache(t *testing.T) {
 	}
 }
 
-func TestFallbackOrNil_APIUnavailable(t *testing.T) {
+func TestFallbackOrNil_APIUnavailableButHasData(t *testing.T) {
+	// Even if APIUnavailable is true, we should return old data (better than nothing)
 	cache := &usageCacheData{
 		FiveHour:        45.0,
+		SevenDay:        10.0,
 		APIUnavailable:  true,
 	}
 
 	result := fallbackOrNil(cache)
+	if result == nil {
+		t.Fatal("Expected result (old data), got nil")
+	}
+	if result.FiveHour != 45.0 {
+		t.Errorf("FiveHour = %f, want 45.0", result.FiveHour)
+	}
+}
+
+func TestFallbackOrNil_APIUnavailableNoData(t *testing.T) {
+	// If APIUnavailable is true and no data, return nil
+	cache := &usageCacheData{
+		APIUnavailable: true,
+	}
+
+	result := fallbackOrNil(cache)
 	if result != nil {
-		t.Errorf("Expected nil for API unavailable cache, got %+v", result)
+		t.Errorf("Expected nil for API unavailable with no data, got %+v", result)
 	}
 }
 
