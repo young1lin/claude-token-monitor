@@ -16,7 +16,7 @@ import (
 const (
 	usageCacheFile    = ".usage-cache.json"
 	refreshTimeout    = 10 * time.Second // Refresh timeout, prevents stale locks from crashes
-	defaultUsageTTL   = 30 * time.Second // Default TTL when config is unavailable
+	defaultUsageTTL   = 5 * time.Second // Default TTL when config is unavailable
 	refreshCoordDelay = 50 * time.Millisecond
 )
 
@@ -363,8 +363,10 @@ func getSubscriptionUsage() *UsageData {
 		return fallbackOrNil(cache)
 	}
 
+	// Skip API-only accounts (no subscription usage to track)
+	// But allow null/empty subscriptionType since some accounts return null
 	subType := strings.ToLower(creds.ClaudeAiOauth.SubscriptionType)
-	if subType == "" || strings.Contains(subType, "api") {
+	if strings.Contains(subType, "api") {
 		return fallbackOrNil(cache)
 	}
 
