@@ -1,127 +1,116 @@
-# Claude Token Monitor - Setup Guide
+# Claude Token Monitor Setup
 
-This guide will help you install the claude-token-monitor statusline plugin.
+You are helping the user install the claude-token-monitor statusline plugin.
 
-## Installation Steps
+## Step 1: Detect Platform
 
-### 1. Detect Platform
+Detect the user's platform:
+- **Windows (win32)**: amd64
+- **macOS (darwin)**: amd64 or arm64
+- **linux**: amd64 or arm64
 
-First, detect the user's platform and architecture:
-- Windows: `os.platform() === 'win32'`
-- macOS: `os.platform() === 'darwin'`
-- Linux: `os.platform() === 'linux'`
+Check with:
+- Windows: Check if `uname` exists, otherwise assume Windows
+- macOS/Linux: `uname -s` for OS, `uname -m` for architecture
 
-For architecture:
-- AMD64/Intel: `process.arch === 'x64'` or `os.arch() === 'amd64'`
-- ARM64: `process.arch === 'arm64'` or `os.arch() === 'arm64'`
+## Step 2: Download Binary
 
-### 2. Get Latest Version
+Base URL: `https://github.com/young1lin/claude-token-monitor/releases/latest/download/`
 
-Fetch the latest release version from GitHub:
+File mappings:
+| Platform | Arch | File |
+|----------|------|------|
+| Windows | amd64 | `statusline_windows_amd64.zip` |
+| macOS | amd64 | `statusline_darwin_amd64.tar.gz` |
+| macOS | arm64 | `statusline_darwin_arm64.tar.gz` |
+| Linux | amd64 | `statusline_linux_amd64.tar.gz` |
+| Linux | arm64 | `statusline_linux_arm64.tar.gz` |
+
+### Windows (PowerShell)
+```powershell
+# Download
+Invoke-WebRequest -Uri "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_windows_amd64.zip" -OutFile "$env:TEMP\statusline.zip"
+# Extract
+Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$env:USERPROFILE\.claude\" -Force
+# Cleanup
+Remove-Item "$env:TEMP\statusline.zip"
 ```
-GET https://api.github.com/repos/young1lin/claude-token-monitor/releases/latest
-```
 
-Extract the `tag_name` (e.g., `v1.0.0`) and remove the `v` prefix.
-
-### 3. Download Binary
-
-Download URLs are constructed as:
-```
-https://github.com/young1lin/claude-token-monitor/releases/download/v{VERSION}/statusline_{OS}_{ARCH}.{EXT}
-```
-
-| Platform | OS | Arch | Extension |
-|----------|-----|------|-----------|
-| Windows | windows | amd64 | .zip |
-| macOS (Intel) | darwin | amd64 | .tar.gz |
-| macOS (Apple Silicon) | darwin | arm64 | .tar.gz |
-| Linux | linux | amd64 | .tar.gz |
-
-Example download URLs:
-- Windows: `https://github.com/young1lin/claude-token-monitor/releases/download/v1.0.0/statusline_windows_amd64.zip`
-- macOS Intel: `https://github.com/young1lin/claude-token-monitor/releases/download/v1.0.0/statusline_darwin_amd64.tar.gz`
-- macOS ARM: `https://github.com/young1lin/claude-token-monitor/releases/download/v1.0.0/statusline_darwin_arm64.tar.gz`
-- Linux: `https://github.com/young1lin/claude-token-monitor/releases/download/v1.0.0/statusline_linux_amd64.tar.gz`
-
-### 4. Extract and Install
-
-**Windows (.zip)**:
+### macOS/Linux
 ```bash
-# Extract to temporary directory
-unzip statusline_windows_amd64.zip -d /tmp/claude-token-monitor
-# Move to Claude directory
-mv /tmp/claude-token-monitor/statusline.exe ~/.claude/statusline.exe
+# Detect platform
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+# Map architecture
+if [ "$ARCH" = "x86_64" ]; then
+  ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+  ARCH="arm64"
+fi
+
+# Download URL
+URL="https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_${OS}_${ARCH}.tar.gz"
+
+# Download and extract
+curl -L "$URL" | tar -xz -C "$HOME/.claude/"
+
+# Make executable
+chmod +x "$HOME/.claude/statusline"
 ```
 
-**macOS/Linux (.tar.gz)**:
+## Step 3: Configure settings.json
+
+Read the existing `~/.claude/settings.json`:
+
 ```bash
-# Extract to temporary directory
-tar -xzf statusline_darwin_amd64.tar.gz -C /tmp/claude-token-monitor
-# Move to Claude directory
-mv /tmp/claude-token-monitor/statusline ~/.claude/statusline
-# Set executable permission
-chmod +x ~/.claude/statusline
+cat ~/.claude/settings.json
 ```
 
-### 5. Configure Claude Code
-
-Add or update the statusLine configuration in `~/.claude/settings.json`:
+Add/update the `statusLine` configuration:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/statusline{.exe}",
-    "env": {
-      "STATUSLINE_MULTILINE": "1"
-    }
+    "command": "C:/Users/<username>/.claude/statusline.exe"
   }
 }
 ```
 
-**Note**: On Windows, the path should be:
-```json
-"command": "C:\\\\Users\\\\<username>\\\\.claude\\\\statusline.exe"
-```
+**Path Format Notes**:
+- **Recommended**: Use forward slashes `/` (works on all platforms including Windows)
+- **Alternative**: Use `$HOME` or `%USERPROFILE%` environment variables
 
-### 6. Verify Installation
+### Platform Examples
 
-Test the installation:
-```bash
-# Windows
-~\.claude\statusline.exe --help
+| Platform | Path Format |
+|----------|-------------|
+| Windows | `C:/Users/username/.claude/statusline.exe` |
+| macOS | `/Users/username/.claude/statusline` |
+| Linux | `/home/username/.claude/statusline` |
 
-# macOS/Linux
-~/.claude/statusline --help
-```
+**Important**: Merge with existing settings, don't overwrite!
 
-Expected output: Statusline plugin showing token usage, git status, etc.
+## Step 4: Verify Installation
+
+Ask the user to check if the statusline appears in Claude Code.
+
+If it doesn't appear, check:
+1. Binary exists at the correct path
+2. Binary has execute permission (macOS/Linux: `chmod +x`)
+3. settings.json has correct statusLine configuration
 
 ## Troubleshooting
 
-### Download Fails
-- Verify the version exists at: https://github.com/young1lin/claude-token-monitor/releases
-- Check your internet connection
+### "Command not found"
+- Check the binary path in settings.json
+- Use forward slashes `/` for path separators (works on Windows too)
+- Ensure the path is absolute (starts with `C:/` on Windows or `/` on Unix)
 
-### Binary Won't Execute (macOS/Linux)
-```bash
-chmod +x ~/.claude/statusline
-```
+### "Permission denied"
+- macOS/Linux: Run `chmod +x ~/.claude/statusline`
 
-### Statusline Not Showing
-1. Check `~/.claude/settings.json` has the correct statusLine configuration
-2. Restart Claude Code
-3. Verify the binary path is correct
-
-### Windows Path Issues
-Ensure paths in settings.json use double backslashes:
-```json
-"command": "C:\\\\Users\\\\username\\\\.claude\\\\statusline.exe"
-```
-
-## Uninstallation
-
-To remove the plugin:
-1. Delete the binary: `rm ~/.claude/statusline` (or `~\.claude\statusline.exe` on Windows)
-2. Remove the statusLine configuration from `~/.claude/settings.json`
+### Statusline not updating
+- Try sending a new message in Claude Code
+- Check that Claude Code is reading the correct settings.json
