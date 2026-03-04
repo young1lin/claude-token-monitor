@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -37,6 +38,11 @@ func TestDefaultConfig(t *testing.T) {
 
 	if cfg.Format.Compact {
 		t.Error("Default Compact should be false")
+	}
+
+	// Test default cache config
+	if cfg.Cache.UsageTTLSeconds != 30 {
+		t.Errorf("Default Cache.UsageTTLSeconds should be 30, got %d", cfg.Cache.UsageTTLSeconds)
 	}
 }
 
@@ -374,6 +380,53 @@ func TestGetTimeFormat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := tt.cfg.GetTimeFormat(); got != tt.want {
 				t.Errorf("GetTimeFormat() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetUsageCacheTTL(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *Config
+		wantSec int
+	}{
+		{
+			name: "default 30 seconds",
+			cfg: &Config{
+				Cache: CacheConfig{UsageTTLSeconds: 30},
+			},
+			wantSec: 30,
+		},
+		{
+			name: "custom 60 seconds",
+			cfg: &Config{
+				Cache: CacheConfig{UsageTTLSeconds: 60},
+			},
+			wantSec: 60,
+		},
+		{
+			name: "zero defaults to 30 seconds",
+			cfg: &Config{
+				Cache: CacheConfig{UsageTTLSeconds: 0},
+			},
+			wantSec: 30,
+		},
+		{
+			name: "negative defaults to 30 seconds",
+			cfg: &Config{
+				Cache: CacheConfig{UsageTTLSeconds: -1},
+			},
+			wantSec: 30,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.GetUsageCacheTTL()
+			want := time.Duration(tt.wantSec) * time.Second
+			if got != want {
+				t.Errorf("GetUsageCacheTTL() = %v, want %v", got, want)
 			}
 		})
 	}

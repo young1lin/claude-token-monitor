@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,6 +15,12 @@ type Config struct {
 	Display DisplayConfig `yaml:"display"`
 	Format  FormatConfig  `yaml:"format"`
 	Content ContentConfig `yaml:"content"`
+	Cache   CacheConfig   `yaml:"cache"`
+}
+
+// CacheConfig controls caching behavior
+type CacheConfig struct {
+	UsageTTLSeconds int `yaml:"usageTTLSeconds"` // Usage API cache TTL (default: 30)
 }
 
 // DisplayConfig controls what content is displayed
@@ -118,6 +125,9 @@ func DefaultConfig() *Config {
 			Composers: nil, // Use default built-in composers
 			Use:       nil, // No overrides
 		},
+		Cache: CacheConfig{
+			UsageTTLSeconds: 30, // Default 30 seconds
+		},
 	}
 }
 
@@ -184,6 +194,14 @@ func (c *Config) GetComposerOverride(contentType string) string {
 // HasCustomComposers returns true if the config defines custom composers
 func (c *Config) HasCustomComposers() bool {
 	return len(c.Content.Composers) > 0
+}
+
+// GetUsageCacheTTL returns the usage API cache TTL duration
+func (c *Config) GetUsageCacheTTL() time.Duration {
+	if c.Cache.UsageTTLSeconds <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.Cache.UsageTTLSeconds) * time.Second
 }
 
 // GetComposerConfig returns the configuration for a custom composer by name

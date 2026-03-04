@@ -6,18 +6,30 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
-// Usage cache
-var (
-	usageCache     *UsageData
-	usageCacheMu   sync.RWMutex
-	usageCacheTime time.Time
-	usageCacheTTL  = 5 * time.Minute
+// Cross-process cache constants
+const (
+	usageCacheFile    = ".usage-cache.json"
+	refreshTimeout    = 10 * time.Second // Refresh timeout, prevents stale locks from crashes
+	defaultUsageTTL   = 30 * time.Second // Default TTL when config is unavailable
+	refreshCoordDelay = 50 * time.Millisecond
 )
+
+// usageCacheData represents the file-based cache structure
+type usageCacheData struct {
+	FiveHour        float64   `json:"five_hour"`
+	SevenDay        float64   `json:"seven_day"`
+	FiveHourResetAt time.Time `json:"five_hour_reset_at"`
+	SevenDayResetAt time.Time `json:"seven_day_reset_at"`
+	FetchedAt       time.Time `json:"fetched_at"`
+	RefreshingSince time.Time `json:"refreshing_since,omitempty"` // Refresh start time (crash recovery)
+	APIUnavailable  bool      `json:"api_unavailable,omitempty"`
+}
 
 // CredentialsFile represents the Claude credentials file
 type CredentialsFile struct {
@@ -125,6 +137,148 @@ func formatResetTime(t time.Time) string {
 	return fmt.Sprintf("%s (%s)", timeStr, zoneName)
 }
 
+// readUsageCache reads the cache file (no lock, direct read)
+func readUsageCache() *usageCacheData {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	cachePath := filepath.Join(homeDir, ".claude", usageCacheFile)
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		return nil // File not exists (first run)
+	}
+	var cache usageCacheData
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil // File corrupted
+	}
+	return &cache
+}
+
+// writeUsageCache writes cache atomically (temp file + rename)
+func writeUsageCache(cache *usageCacheData) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	cachePath := filepath.Join(homeDir, ".claude", usageCacheFile)
+	// Use nanosecond timestamp to ensure unique temp file name
+	tmpPath := cachePath + ".tmp." + strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	data, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+
+	// 1. Write to temp file
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return err
+	}
+
+	// 2. Sync to ensure data is persisted (optional, increases safety)
+	if f, err := os.Open(tmpPath); err == nil {
+		f.Sync()
+		f.Close()
+	}
+
+	// 3. Atomic replace
+	// Windows: os.Rename fails if target exists, need to remove first
+	if runtime.GOOS == "windows" {
+		os.Remove(cachePath)
+	}
+	err = os.Rename(tmpPath, cachePath)
+	if err != nil {
+		os.Remove(tmpPath) // Clean up temp file
+	}
+	return err
+}
+
+// shouldRefreshResult returns refresh decision
+// - refresh: true means should refresh (call API)
+// - cache: non-nil means usable cache (may be expired)
+func shouldRefreshResult(ttl time.Duration) (refresh bool, cache *usageCacheData) {
+	now := time.Now()
+	cache = readUsageCache()
+
+	// Case 1: No cache file (first run)
+	if cache == nil {
+		return true, nil // Need refresh
+	}
+
+	// Case 2: Cache is valid
+	if now.Sub(cache.FetchedAt) <= ttl {
+		return false, cache // Use cache
+	}
+
+	// Case 3: Cache expired, check if another process is refreshing
+	if !cache.RefreshingSince.IsZero() {
+		refreshingDuration := now.Sub(cache.RefreshingSince)
+		if refreshingDuration < refreshTimeout {
+			// Another process is refreshing (within 10s), use expired cache
+			return false, cache
+		}
+		// Over 10s, assume refresh process crashed, reset refresh flag and continue
+	}
+
+	// Case 4: Cache expired, no one is refreshing
+	// Mark "refreshing" and return
+	cache.RefreshingSince = now
+	if err := writeUsageCache(cache); err != nil {
+		// Write failed (maybe another process writing at same time), use expired cache
+		return false, cache
+	}
+
+	// Re-read to check if another process also marked refresh
+	// We wrote at time 'now', so if we read back a timestamp earlier than 'now',
+	// it means another process wrote before us and we should use their result
+	time.Sleep(refreshCoordDelay)
+	latestCache := readUsageCache()
+	if latestCache != nil && !latestCache.RefreshingSince.IsZero() && latestCache.RefreshingSince.Before(now) {
+		// Another process marked refresh first (their timestamp is earlier than ours)
+		return false, latestCache
+	}
+
+	return true, cache // We are responsible for refresh, cache as fallback
+}
+
+// writeRefreshedCache writes successful refresh result
+func writeRefreshedCache(usage *UsageData) error {
+	cache := &usageCacheData{
+		FiveHour:        usage.FiveHour,
+		SevenDay:        usage.SevenDay,
+		FiveHourResetAt: usage.FiveHourResetAt,
+		SevenDayResetAt: usage.SevenDayResetAt,
+		FetchedAt:       time.Now(),
+		RefreshingSince: time.Time{}, // Clear refresh flag
+		APIUnavailable:  false,
+	}
+	return writeUsageCache(cache)
+}
+
+// writeRefreshFailedCache writes failed refresh result
+func writeRefreshFailedCache() error {
+	cache := &usageCacheData{
+		FetchedAt:       time.Now(),
+		RefreshingSince: time.Time{},
+		APIUnavailable:  true,
+	}
+	return writeUsageCache(cache)
+}
+
+// fallbackOrNil returns cache data as UsageData or nil
+func fallbackOrNil(cache *usageCacheData) *UsageData {
+	if cache == nil || cache.APIUnavailable {
+		return nil
+	}
+	return &UsageData{
+		FiveHour:        cache.FiveHour,
+		SevenDay:        cache.SevenDay,
+		FiveHourResetAt: cache.FiveHourResetAt,
+		SevenDayResetAt: cache.SevenDayResetAt,
+	}
+}
+
 // getLocalTimeZoneName attempts to get the IANA timezone name
 func getLocalTimeZoneName() string {
 	if tz := os.Getenv("TZ"); tz != "" {
@@ -157,60 +311,58 @@ func getLocalTimeZoneName() string {
 }
 
 // getSubscriptionUsage fetches subscription usage from Claude OAuth API
+// Uses file-based cache for cross-process coordination
 func getSubscriptionUsage() *UsageData {
-	now := time.Now()
+	// Read TTL from config (default 30s)
+	ttl := defaultUsageTTL
 
-	usageCacheMu.RLock()
-	if usageCache != nil && now.Sub(usageCacheTime) < usageCacheTTL {
-		cached := *usageCache
-		usageCacheMu.RUnlock()
-		return &cached
+	shouldRefresh, cache := shouldRefreshResult(ttl)
+
+	// No refresh needed, return cache directly
+	if !shouldRefresh {
+		return fallbackOrNil(cache)
 	}
-	usageCacheMu.RUnlock()
 
+	// Need refresh - read credentials and call API
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
 	credPath := filepath.Join(homeDir, ".claude", ".credentials.json")
 	credData, err := os.ReadFile(credPath)
 	if err != nil {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
 	var creds CredentialsFile
 	if err := json.Unmarshal(credData, &creds); err != nil {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
 	if creds.ClaudeAiOauth == nil || creds.ClaudeAiOauth.AccessToken == "" {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
+	now := time.Now()
 	if creds.ClaudeAiOauth.ExpiresAt > 0 && creds.ClaudeAiOauth.ExpiresAt < now.UnixMilli() {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
 	subType := strings.ToLower(creds.ClaudeAiOauth.SubscriptionType)
 	if subType == "" || strings.Contains(subType, "api") {
-		return nil
+		return fallbackOrNil(cache)
 	}
 
 	usage, err := fetchUsageAPI(creds.ClaudeAiOauth.AccessToken)
 	if err != nil || usage == nil {
-		usageCacheMu.Lock()
-		usageCache = &UsageData{APIUnavailable: true}
-		usageCacheTime = now
-		usageCacheMu.Unlock()
-		return nil
+		// API failed, record failure state
+		writeRefreshFailedCache()
+		return fallbackOrNil(cache)
 	}
 
-	usageCacheMu.Lock()
-	usageCache = usage
-	usageCacheTime = now
-	usageCacheMu.Unlock()
-
+	// Success, write cache
+	writeRefreshedCache(usage)
 	return usage
 }
 
