@@ -25,24 +25,49 @@ var (
 	commit  = "unknown"
 )
 
-func init() {
-	// Set emoji width based on platform/terminal for proper alignment in multi-line mode
-	//
-	// This ensures that runewidth.StringWidth() calculates the same width
-	// as the terminal actually renders, preventing misaligned column separators.
-	//
-	// Platform-specific behavior:
-	// - macOS (darwin): EastAsianWidth=true → emoji calculated as width 2
-	// - Windows Terminal (WT_SESSION env var): EastAsianWidth=true → emoji width 2
-	// - Other Windows terminals: EastAsianWidth=false → emoji calculated as width 1
-	// - Linux: EastAsianWidth=false → emoji calculated as width 1 (safe default)
+// detectWideCharTerminal checks if the current terminal renders
+// emoji as width 2 characters.
+// Returns true ONLY for terminals known to use wide character rendering.
+func detectWideCharTerminal() bool {
+	// macOS terminals typically use wide character rendering
 	if runtime.GOOS == "darwin" {
-		runewidth.EastAsianWidth = true // macOS: wide emoji
-	} else if runtime.GOOS == "windows" && os.Getenv("WT_SESSION") != "" {
-		// Windows Terminal renders emoji as width 2
-		runewidth.EastAsianWidth = true
-	} else {
-		runewidth.EastAsianWidth = false // Other terminals: narrow emoji
+		return true
+	}
+
+	// Windows Terminal - the ONLY Windows terminal that uses wide chars
+	if os.Getenv("WT_SESSION") != "" {
+		return true
+	}
+
+	// iTerm2 (macOS, but check anyway)
+	if os.Getenv("TERM_PROGRAM") == "iTerm.app" {
+		return true
+	}
+
+	// Default: narrow character rendering (width 1)
+	// This includes: VSCode Terminal, WARP, cmd.exe, PowerShell, etc.
+	return false
+}
+
+func init() {
+	// Set emoji width based on terminal detection for proper alignment.
+	//
+	// EastAsianWidth=true means emoji calculated as width 2
+	// EastAsianWidth=false means emoji calculated as width 1
+	//
+	// Only these terminals use wide character rendering:
+	// - macOS (all terminals)
+	// - Windows Terminal (WT_SESSION)
+	// - iTerm2 (TERM_PROGRAM=iTerm.app)
+	//
+	// Other terminals (VSCode, WARP, cmd, PowerShell) use narrow rendering.
+	runewidth.EastAsianWidth = detectWideCharTerminal()
+
+	// For non-Windows-Terminal on Windows, enable narrow Block Elements.
+	// VSCode Terminal and WARP render all Block Elements (█░▓▒) as width 1,
+	// but go-runewidth reports █ as width 2. This causes misalignment.
+	if runtime.GOOS == "windows" && os.Getenv("WT_SESSION") == "" {
+		layout.UseNarrowBlockWidth = true
 	}
 }
 

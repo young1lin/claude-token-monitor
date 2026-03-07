@@ -10,9 +10,37 @@ import (
 // ansiRegex matches ANSI escape sequences (color codes, etc.)
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// displayWidth returns the visible width of a string, ignoring ANSI escape sequences
+// UseNarrowBlockWidth controls whether Block Elements (█░▓▒ etc.)
+// should be treated as width 1 for consistent rendering.
+// This is needed for terminals like VSCode/WARP that render ALL
+// Block Elements as width 1, while go-runewidth reports █ as width 2.
+var UseNarrowBlockWidth = false
+
+// isBlockElement checks if a rune is a Block Elements character (U+2580-U+259F)
+func isBlockElement(r rune) bool {
+	return r >= '\u2580' && r <= '\u259F'
+}
+
+// displayWidth returns the visible width of a string, ignoring ANSI escape sequences.
+// When UseNarrowBlockWidth is true, Block Elements are treated as width 1.
 func displayWidth(s string) int {
-	return runewidth.StringWidth(ansiRegex.ReplaceAllString(s, ""))
+	// Strip ANSI codes first
+	s = ansiRegex.ReplaceAllString(s, "")
+
+	if !UseNarrowBlockWidth {
+		return runewidth.StringWidth(s)
+	}
+
+	// Custom width calculation: Block Elements = width 1
+	width := 0
+	for _, r := range s {
+		if isBlockElement(r) {
+			width += 1 // All Block Elements treated as width 1
+		} else {
+			width += runewidth.RuneWidth(r)
+		}
+	}
+	return width
 }
 
 // rowMeta holds a compacted row together with its alignment metadata
