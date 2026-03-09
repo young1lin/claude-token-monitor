@@ -1,10 +1,10 @@
 # Claude Token Monitor
 
-Claude Code 实时 Token 使用状态栏插件。
+Real-time token usage statusline for Claude Code.
 
 ![](./images/claude-code-monitor.png)
 
-## 安装
+## Installation
 
 ```bash
 /plugin marketplace add young1lin/claude-token-monitor
@@ -12,9 +12,9 @@ Claude Code 实时 Token 使用状态栏插件。
 /claude-token-monitor:setup
 ```
 
-## 配置
+## Configuration
 
-在项目中创建 `.claude/statusline.yaml`：
+Create `.claude/statusline.yaml` in your project:
 
 ```yaml
 display:
@@ -37,9 +37,9 @@ content:
     token: my-token
 ```
 
-## 扩展开发
+## Extending
 
-在 `internal/statusline/content/` 中创建新的收集器：
+Add new content by creating a collector in `internal/statusline/content/`:
 
 ```go
 type MyCollector struct {
@@ -51,11 +51,11 @@ func (c *MyCollector) Collect(input, summary) (string, error) {
 }
 ```
 
-在 `main.go` 中注册，并在 `layout/grid.go` 中添加到布局。
+Register in `main.go` and add to layout in `layout/grid.go`.
 
-## 工作原理
+## How It Works
 
-状态栏插件采用**无状态 stdin/stdout** 执行模型。Claude Code 每次刷新时启动插件子进程，通过 stdin 写入 JSON 数据，从 stdout 读取格式化后的状态文本。
+The statusline plugin follows a **stateless stdin/stdout** execution model. Claude Code spawns the plugin as a child process on every refresh, writes a JSON payload to stdin, and reads the formatted status text from stdout.
 
 ```
 +-------------------+          +--------------------+          +------------------+
@@ -106,7 +106,7 @@ Claude Code                          statusline.exe
 
 ### Input (stdin)
 
-Claude Code 通过 stdin 发送 JSON 数据：
+Claude Code sends a single JSON object via stdin:
 
 ```json
 {
@@ -133,7 +133,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ### Output (stdout)
 
-插件向 stdout 输出一行或多行纯文本（可包含 ANSI 颜色代码）：
+The plugin writes one or more lines of plain text (with optional ANSI color codes) to stdout:
 
 ```
 [Claude Sonnet 4.5] | [███░░░░░░░] 75K/200K (37.5%) | 🌿 main +12 ~3 | 🔧 5 tools
@@ -141,7 +141,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ### Why Hot Reload Works
 
-由于插件**每次刷新都重新启动**，重新编译二进制文件后立即生效——无需重启 Claude Code。
+Because the plugin is **spawned fresh on every refresh**, recompiling the binary takes effect immediately — no restart of Claude Code needed.
 
 ```
   Time ─────────────────────────────────────────────────>
@@ -165,14 +165,14 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ### Debugging with `--debug`
 
-使用 `--debug` 参数查看 Claude Code 发送给插件的确切 JSON 数据：
+To inspect the exact JSON that Claude Code sends to the plugin, run with the `--debug` flag:
 
 ```bash
 # In your Claude Code settings, temporarily add --debug:
 "command": "C:\\\\path\\\\to\\\\statusline.exe --debug"
 ```
 
-启用 `--debug` 后，插件会将原始 JSON 输入写入二进制文件所在目录的 `statusline.debug` 文件：
+When `--debug` is enabled, the plugin writes the raw JSON input to a file called `statusline.debug` in the same directory as the binary:
 
 ```
 +-------------------+       +--------------------+       +-------------------+
@@ -189,7 +189,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
                              +--------------------+
 ```
 
-调试文件包含带时间戳的格式化 JSON：
+The debug file contains a timestamped, pretty-printed copy of the input:
 
 ```
 ------------------------------------------------------------
@@ -217,52 +217,53 @@ File: C:\path\to\statusline.debug
 ------------------------------------------------------------
 ```
 
-用途：
-- 验证 Claude Code 实际提供的字段
-- 检查 token 值是否与 `/context` 命令显示一致
-- 诊断状态栏显示异常数据时的解析问题
+This is useful for:
 
-## 更新
+- Verifying which fields Claude Code actually provides
+- Checking token values match what `/context` reports
+- Diagnosing parsing issues when the status bar shows unexpected data
 
-### 更新插件（命令和技能）
+## Updating
 
-通过 marketplace 安装的用户，更新到最新版本：
+### Update Plugin (Commands & Skills)
+
+If you installed via marketplace, update to the latest version:
 
 ```bash
 /plugin update claude-token-monitor@claude-token-monitor
 ```
 
-或通过 CLI：
+Or via CLI:
 
 ```bash
 claude plugin update claude-token-monitor@claude-token-monitor
 ```
 
-**更新内容：**
-- `/setup` 命令
-- `/commit-push` 命令
-- `/release-github` 命令
-- 插件包含的其他技能或代理
+**What gets updated:**
+- `/setup` command
+- `/commit-push` command
+- `/release-github` command
+- Any skills or agents included in the plugin
 
-**插件缓存位置：**
+**Where plugins are cached:**
 
-| 平台 | 路径 |
-|------|------|
-| Windows | `C:/Users/<用户名>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<版本>/` |
-| macOS | `/Users/<用户名>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<版本>/` |
-| Linux | `/home/<用户名>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<版本>/` |
+| Platform | Path |
+|----------|------|
+| Windows | `C:/Users/<username>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<version>/` |
+| macOS | `/Users/<username>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<version>/` |
+| Linux | `/home/<username>/.claude/plugins/cache/claude-token-monitor/claude-token-monitor/<version>/` |
 
-### 更新 Statusline 二进制文件
+### Update Statusline Binary
 
-`/setup` 命令会自动处理二进制文件更新：
+The `/setup` command handles binary updates automatically:
 
-1. 执行 `/setup` 或 `/claude-token-monitor:setup`
-2. 检查本地版本与 GitHub 最新发布版本
-3. 如有新版本，自动下载并安装更新
+1. Run `/setup` or `/claude-token-monitor:setup`
+2. It checks your local version against the latest GitHub release
+3. If a newer version exists, it downloads and installs the update
 
-### 手动更新二进制文件
+### Manual Binary Update
 
-如需手动更新：
+If you need to update the binary manually:
 
 ```bash
 # Check current version
@@ -280,16 +281,16 @@ curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/downl
 curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -C "$HOME/.claude/"
 ```
 
-### 启用自动更新
+### Enable Auto-Update
 
-启用启动时自动更新插件：
+To enable automatic plugin updates on startup:
 
-1. 执行 `/plugin`
-2. 进入 **Marketplaces** 标签页
-3. 选择 `claude-token-monitor` marketplace
-4. 启用 **Auto-update**
+1. Run `/plugin`
+2. Go to **Marketplaces** tab
+3. Select `claude-token-monitor` marketplace
+4. Enable **Auto-update**
 
-或通过 CLI：
+Or via CLI:
 
 ```bash
 claude plugin marketplace update claude-token-monitor --auto-update true
@@ -297,4 +298,4 @@ claude plugin marketplace update claude-token-monitor --auto-update true
 
 ---
 
-[English Documentation](./README.en-US.md)
+[中文文档](./README.md)
