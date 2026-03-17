@@ -12,6 +12,22 @@ import (
 	"time"
 )
 
+// testOverrides holds values that can be overridden during testing.
+// Empty string means "use the real value".
+var (
+	overrideHomeDir       string          // Override os.UserHomeDir() in tests
+	usageAPIURL           = "https://api.anthropic.com/api/oauth/usage"
+	getSubscriptionUsageFn func() *UsageData // Override getSubscriptionUsage in tests (nil = real impl)
+)
+
+// getEffectiveHomeDir returns the home directory, allowing test override.
+func getEffectiveHomeDir() (string, error) {
+	if overrideHomeDir != "" {
+		return overrideHomeDir, nil
+	}
+	return os.UserHomeDir()
+}
+
 // Cross-process cache constants (aligned with claude-hud)
 const (
 	usageCacheFile         = ".usage-cache.json"
@@ -152,13 +168,35 @@ func (c *QuotaCollector) Collect(input interface{}, summary interface{}) (string
 
 // getSubscriptionQuota returns the subscription quota usage percentage with reset time
 func getSubscriptionQuota(input *StatusLineInput) string {
-	usage := getSubscriptionUsage()
+	var usage *UsageData
+	if getSubscriptionUsageFn != nil {
+		usage = getSubscriptionUsageFn()
+	} else {
+		usage = getSubscriptionUsage()
+	}
 
 	if usage == nil {
 		return ""
 	}
 
-	if usage.FiveHour > 0 {
+	hasFive := usage.FiveHour > 0
+	hasSeven := usage.SevenDay > 0
+
+	if !hasFive && !hasSeven {
+		return ""
+	}
+
+	// Both limits available: show 5h (primary) + 7d (secondary), reset refers to 5h
+	if hasFive && hasSeven {
+		resetTime := formatResetTime(usage.FiveHourResetAt)
+		if resetTime != "" {
+			return fmt.Sprintf("📊 %.0f%% 5h · %.0f%% 7d · Reset %s", usage.FiveHour, usage.SevenDay, resetTime)
+		}
+		return fmt.Sprintf("📊 %.0f%% 5h · %.0f%% 7d", usage.FiveHour, usage.SevenDay)
+	}
+
+	// Only 5-hour limit
+	if hasFive {
 		resetTime := formatResetTime(usage.FiveHourResetAt)
 		if resetTime != "" {
 			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.FiveHour, resetTime)
@@ -166,15 +204,12 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 		return fmt.Sprintf("📊 %.0f%%", usage.FiveHour)
 	}
 
-	if usage.SevenDay > 0 {
-		resetTime := formatResetTime(usage.SevenDayResetAt)
-		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.SevenDay, resetTime)
-		}
-		return fmt.Sprintf("📊 %.0f%%", usage.SevenDay)
+	// Only 7-day limit
+	resetTime := formatResetTime(usage.SevenDayResetAt)
+	if resetTime != "" {
+		return fmt.Sprintf("📊 %.0f%% 7d · Reset %s", usage.SevenDay, resetTime)
 	}
-
-	return ""
+	return fmt.Sprintf("📊 %.0f%% 7d", usage.SevenDay)
 }
 
 // formatResetTime formats the reset time in local timezone with timezone name
@@ -195,7 +230,7 @@ func getCachePath(homeDir string) string {
 
 // readUsageCache reads the cache file (no lock, direct read)
 func readUsageCache() *usageCacheData {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := getEffectiveHomeDir()
 	if err != nil {
 		return nil
 	}
@@ -213,7 +248,7 @@ func readUsageCache() *usageCacheData {
 
 // writeUsageCache writes cache atomically (temp file + rename)
 func writeUsageCache(cache *usageCacheData) error {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := getEffectiveHomeDir()
 	if err != nil {
 		return err
 	}
@@ -497,7 +532,7 @@ func getSubscriptionUsage() *UsageData {
 	}
 
 	// Need refresh - read credentials and call API
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := getEffectiveHomeDir()
 	if err != nil {
 		return fallbackOrNil(cache)
 	}
@@ -547,7 +582,7 @@ func getSubscriptionUsage() *UsageData {
 func fetchUsageAPI(accessToken string) (*UsageData, bool, int, error) {
 	client := &http.Client{Timeout: time.Duration(httpTimeoutSeconds) * time.Second}
 
-	req, err := http.NewRequest("GET", "https://api.anthropic.com/api/oauth/usage", nil)
+	req, err := http.NewRequest("GET", usageAPIURL, nil)
 	if err != nil {
 		return nil, false, 0, err
 	}

@@ -68,6 +68,7 @@ func TestGetRateLimitedTTL(t *testing.T) {
 		expectedMin time.Duration
 		expectedMax time.Duration
 	}{
+		{"Zero count (same as 1)", 0, 55 * time.Second, 65 * time.Second},
 		{"First retry", 1, 55 * time.Second, 65 * time.Second},
 		{"Second retry", 2, 115 * time.Second, 125 * time.Second},
 		{"Third retry", 3, 235 * time.Second, 245 * time.Second},
@@ -113,6 +114,14 @@ func TestParseRetryAfterHeader_HTTPDate(t *testing.T) {
 	// Just verify it doesn't panic and returns non-negative value
 	result := parseRetryAfterHeader("Wed, 21 Oct 2015 07:28:00 GMT")
 	assert.GreaterOrEqual(t, result, 0)
+}
+
+// Test for parseRetryAfterHeader with a future HTTP date
+func TestParseRetryAfterHeader_FutureHTTPDate(t *testing.T) {
+	future := time.Now().UTC().Add(60 * time.Second)
+	result := parseRetryAfterHeader(future.Format(time.RFC1123))
+	assert.Greater(t, result, 50)
+	assert.Less(t, result, 70)
 }
 
 // Test for getLocalTimeZoneName
