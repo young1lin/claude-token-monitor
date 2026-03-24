@@ -3,9 +3,7 @@ package content
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -71,14 +69,23 @@ func getMemoryFilesInfoCached(cwd string) MemoryFilesInfo {
 	return info
 }
 
+// clearMemoryCache resets the memory cache (for tests).
+func clearMemoryCache() {
+	memoryFilesCacheMu.Lock()
+	memoryFilesCache = nil
+	memoryFilesCacheTime = time.Time{}
+	memoryFilesCacheMu.Unlock()
+}
+
 // getMemoryFilesInfo scans all Claude Code memory file locations
 func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	info := MemoryFilesInfo{}
+	fs := defaultFileSystem
 
 	// 1. Check Enterprise policy (Windows)
-	if runtime.GOOS == "windows" {
+	if currentOS == "windows" {
 		enterprisePath := filepath.Join("C:", "Program Files", "ClaudeCode", "CLAUDE.md")
-		if _, err := os.Stat(enterprisePath); err == nil {
+		if _, err := fs.Stat(enterprisePath); err == nil {
 			info.CLAUDEMdCount++
 		}
 	}
@@ -90,10 +97,10 @@ func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	info.RulesCount += countRulesUpward(cwd)
 
 	// 4. Check User memory: ~/.claude/CLAUDE.md
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := fs.UserHomeDir()
 	if err == nil {
 		globalClaudeMd := filepath.Join(homeDir, ".claude", "CLAUDE.md")
-		if _, err := os.Stat(globalClaudeMd); err == nil {
+		if _, err := fs.Stat(globalClaudeMd); err == nil {
 			info.CLAUDEMdCount++
 		}
 		globalRulesDir := filepath.Join(homeDir, ".claude", "rules")
@@ -113,10 +120,9 @@ func countRulesUpward(cwd string) int {
 
 	cwd = filepath.Clean(cwd)
 
-	// Reduced from 20 to 10 levels - sufficient for 99% of projects
 	for i := 0; i < 10; i++ {
 		rulesDir := filepath.Join(cwd, ".claude", "rules")
-		if _, err := os.Stat(rulesDir); err == nil {
+		if _, err := defaultFileSystem.Stat(rulesDir); err == nil {
 			if !seen[rulesDir] {
 				totalCount += countRulesRecursive(rulesDir)
 				seen[rulesDir] = true
@@ -140,10 +146,9 @@ func countClaudeMdUpward(cwd string) int {
 
 	cwd = filepath.Clean(cwd)
 
-	// Reduced from 20 to 10 levels - sufficient for 99% of projects
 	for i := 0; i < 10; i++ {
 		rootPath := filepath.Join(cwd, "CLAUDE.md")
-		if _, err := os.Stat(rootPath); err == nil {
+		if _, err := defaultFileSystem.Stat(rootPath); err == nil {
 			if !seen[rootPath] {
 				count++
 				seen[rootPath] = true
@@ -151,7 +156,7 @@ func countClaudeMdUpward(cwd string) int {
 		}
 
 		claudePath := filepath.Join(cwd, ".claude", "CLAUDE.md")
-		if _, err := os.Stat(claudePath); err == nil {
+		if _, err := defaultFileSystem.Stat(claudePath); err == nil {
 			if !seen[claudePath] {
 				count++
 				seen[claudePath] = true
@@ -159,7 +164,7 @@ func countClaudeMdUpward(cwd string) int {
 		}
 
 		localPath := filepath.Join(cwd, "CLAUDE.local.md")
-		if _, err := os.Stat(localPath); err == nil {
+		if _, err := defaultFileSystem.Stat(localPath); err == nil {
 			if !seen[localPath] {
 				count++
 				seen[localPath] = true
@@ -180,7 +185,7 @@ func countClaudeMdUpward(cwd string) int {
 func countRulesRecursive(rulesDir string) int {
 	count := 0
 
-	entries, err := os.ReadDir(rulesDir)
+	entries, err := defaultFileSystem.ReadDir(rulesDir)
 	if err != nil {
 		return count
 	}
@@ -205,10 +210,11 @@ func countRulesRecursive(rulesDir string) int {
 // getMCPCount reads and parses MCP servers configuration
 func getMCPCount(cwd string) int {
 	count := 0
+	fs := defaultFileSystem
 
 	// Method 1: Check .claude/mcp_servers.json
 	mcpPath := filepath.Join(cwd, ".claude", "mcp_servers.json")
-	if data, err := os.ReadFile(mcpPath); err == nil {
+	if data, err := fs.ReadFile(mcpPath); err == nil {
 		var mcpServers map[string]interface{}
 		if err := json.Unmarshal(data, &mcpServers); err == nil {
 			if servers, ok := mcpServers["mcpServers"].([]interface{}); ok {
@@ -221,10 +227,10 @@ func getMCPCount(cwd string) int {
 
 	// Method 2: Check ~/.claude/settings.json for mcpServers
 	if count == 0 {
-		homeDir, err := os.UserHomeDir()
+		homeDir, err := fs.UserHomeDir()
 		if err == nil {
 			settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
-			if data, err := os.ReadFile(settingsPath); err == nil {
+			if data, err := fs.ReadFile(settingsPath); err == nil {
 				var settings map[string]interface{}
 				if err := json.Unmarshal(data, &settings); err == nil {
 					if mcpServers, ok := settings["mcpServers"].(map[string]interface{}); ok {

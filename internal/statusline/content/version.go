@@ -1,7 +1,6 @@
 package content
 
 import (
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -54,10 +53,17 @@ func getClaudeVersionCached() string {
 	return version
 }
 
+// clearVersionCache resets the version cache (for tests).
+func clearVersionCache() {
+	claudeVersionCacheMu.Lock()
+	claudeVersionCache = ""
+	claudeVersionCacheTime = time.Time{}
+	claudeVersionCacheMu.Unlock()
+}
+
 // getClaudeVersion fetches Claude Code version by running "claude --version"
 func getClaudeVersion() string {
-	cmd := exec.Command("claude", "--version")
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run("", "claude", "--version")
 	if err != nil {
 		return ""
 	}

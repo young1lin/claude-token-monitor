@@ -2,7 +2,6 @@ package content
 
 import (
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,7 +93,7 @@ func (c *GitRemoteCollector) Collect(input interface{}, summary interface{}) (st
 	return getGitRemoteStatusCached(statusInput.Cwd), nil
 }
 
-// getGitDataParallel fetches all git data (branch, status, remote) in parallel
+// getGitDataParallel fetches all git data (branch, status, remote) in parallel.
 // This is the main optimization - instead of calling each git command sequentially,
 // we run them concurrently and wait for all to complete.
 func getGitDataParallel(cwd string) (branch, status, remote string) {
@@ -195,16 +194,14 @@ func TruncateBranch(branch string) string {
 	return branch
 }
 
-// getGitBranch reads the current git branch
+// getGitBranch reads the current git branch using defaultCommandRunner.
 func getGitBranch(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
 
 	// Method 1: Try git symbolic-ref --short HEAD
-	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run(cwd, "git", "symbolic-ref", "--short", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		if branch != "" && branch != "HEAD" {
@@ -213,19 +210,13 @@ func getGitBranch(cwd string) string {
 	}
 
 	// Method 2: Try git rev-parse --abbrev-ref HEAD
-	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = cwd
-	output, err = cmd.Output()
+	output, err = defaultCommandRunner.Run(cwd, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		if branch == "" || branch == "HEAD" {
-			cmd = exec.Command("git", "status", "--porcelain")
-			cmd.Dir = cwd
-			_, err = cmd.Output()
+			_, err = defaultCommandRunner.Run(cwd, "git", "status", "--porcelain")
 			if err == nil {
-				cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "origin/HEAD")
-				cmd.Dir = cwd
-				output, err = cmd.Output()
+				output, err = defaultCommandRunner.Run(cwd, "git", "rev-parse", "--abbrev-ref", "origin/HEAD")
 				if err == nil {
 					remoteBranch := strings.TrimSpace(string(output))
 					if strings.HasPrefix(remoteBranch, "origin/") {
@@ -242,15 +233,13 @@ func getGitBranch(cwd string) string {
 	return ""
 }
 
-// getGitStatus returns added, deleted, modified file counts
+// getGitStatus returns added, deleted, modified file counts.
 func getGitStatus(cwd string) (int, int, int) {
 	if cwd == "" {
 		return 0, 0, 0
 	}
 
-	cmd := exec.Command("git", "status", "--porcelain", "--untracked-files=all")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run(cwd, "git", "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return 0, 0, 0
 	}
@@ -293,15 +282,13 @@ func getGitStatus(cwd string) (int, int, int) {
 	return added, deleted, modified
 }
 
-// getGitRemoteStatus returns the remote branch sync status
+// getGitRemoteStatus returns the remote branch sync status.
 func getGitRemoteStatus(cwd string) string {
 	if cwd == "" {
 		return ""
 	}
 
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run(cwd, "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
 		return ""
 	}
@@ -311,9 +298,7 @@ func getGitRemoteStatus(cwd string) string {
 		return ""
 	}
 
-	cmd = exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
-	cmd.Dir = cwd
-	output, err = cmd.Output()
+	output, err = defaultCommandRunner.Run(cwd, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
 	if err != nil {
 		return ""
 	}
@@ -349,15 +334,13 @@ func formatGitRemote(ahead, behind int) string {
 	return ""
 }
 
-// getGitRemoteStatusRaw returns raw ahead/behind counts
+// getGitRemoteStatusRaw returns raw ahead/behind counts.
 func getGitRemoteStatusRaw(cwd string) (ahead, behind int) {
 	if cwd == "" {
 		return 0, 0
 	}
 
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	cmd.Dir = cwd
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run(cwd, "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
 		return 0, 0
 	}
@@ -367,9 +350,7 @@ func getGitRemoteStatusRaw(cwd string) (ahead, behind int) {
 		return 0, 0
 	}
 
-	cmd = exec.Command("git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
-	cmd.Dir = cwd
-	output, err = cmd.Output()
+	output, err = defaultCommandRunner.Run(cwd, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
 	if err != nil {
 		return 0, 0
 	}

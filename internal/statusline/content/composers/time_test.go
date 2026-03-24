@@ -104,6 +104,45 @@ func TestTimeQuotaComposer_Compose(t *testing.T) {
 			},
 			want: "14:30",
 		},
+		{
+			name: "custom config with empty separator defaults to pipe",
+			composer: NewTimeQuotaComposerFromConfig(TimeQuotaComposerConfig{
+				Name:      "default-sep",
+				ShowQuota: true,
+				Separator: "",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentCurrentTime: "15:00",
+				content.ContentQuota:       "📊 50%",
+			},
+			want: "15:00 | 📊 50%",
+		},
+		{
+			name: "custom config empty time with quota",
+			composer: NewTimeQuotaComposerFromConfig(TimeQuotaComposerConfig{
+				Name:      "quota-only-cfg",
+				ShowQuota: true,
+				Separator: " | ",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentCurrentTime: "",
+				content.ContentQuota:       "📊 80%",
+			},
+			want: "📊 80%",
+		},
+		{
+			name: "custom config both empty",
+			composer: NewTimeQuotaComposerFromConfig(TimeQuotaComposerConfig{
+				Name:      "both-empty",
+				ShowQuota: true,
+				Separator: " | ",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentCurrentTime: "",
+				content.ContentQuota:       "",
+			},
+			want: "",
+		},
 	}
 
 	for _, tt := range tests {

@@ -125,6 +125,92 @@ func TestGitComposer_Compose(t *testing.T) {
 			},
 			want: "⎇ main +3",
 		},
+		{
+			name:     "default composer with remote only",
+			composer: NewGitComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitStatus: "",
+				content.ContentGitRemote: "🔄 ↑3",
+			},
+			want: "🔄 ↑3",
+		},
+		{
+			name:     "branch and status with status only (no branch)",
+			composer: NewGitComposerWithStatus(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitStatus: "+5 ~2",
+			},
+			want: "+5 ~2",
+		},
+		{
+			name:     "branch and status both empty",
+			composer: NewGitComposerWithStatus(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitStatus: "",
+			},
+			want: "",
+		},
+		{
+			name: "custom config with status and remote, no branch prefix",
+			composer: NewGitComposerFromConfig(GitComposerConfig{
+				Name:         "full",
+				ShowStatus:   true,
+				ShowRemote:   true,
+				BranchPrefix: "",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "dev",
+				content.ContentGitStatus: "+3",
+				content.ContentGitRemote: "🔄",
+			},
+			want: "dev +3 🔄",
+		},
+		{
+			name: "custom config empty branch with status and remote",
+			composer: NewGitComposerFromConfig(GitComposerConfig{
+				Name:         "empty-branch",
+				ShowStatus:   true,
+				ShowRemote:   true,
+				BranchPrefix: "🌿 ",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitStatus: "+5",
+				content.ContentGitRemote: "🔄 ↑2",
+			},
+			want: "+5 🔄 ↑2",
+		},
+		{
+			name: "custom config all empty",
+			composer: NewGitComposerFromConfig(GitComposerConfig{
+				Name:         "all-empty",
+				ShowStatus:   true,
+				ShowRemote:   true,
+				BranchPrefix: "🌿 ",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitStatus: "",
+				content.ContentGitRemote: "",
+			},
+			want: "",
+		},
+		{
+			name: "custom config with remote only",
+			composer: NewGitComposerFromConfig(GitComposerConfig{
+				Name:       "remote-only",
+				ShowStatus: false,
+				ShowRemote: true,
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch: "",
+				content.ContentGitRemote: "🔄",
+			},
+			want: "🔄",
+		},
 	}
 
 	for _, tt := range tests {

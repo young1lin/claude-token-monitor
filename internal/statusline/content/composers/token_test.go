@@ -116,6 +116,69 @@ func TestTokenComposer_Compose(t *testing.T) {
 			},
 			want: "{GLM-4.7 ███░░░░}",
 		},
+		{
+			name:     "simple composer empty model uses default",
+			composer: NewTokenComposerSimple(),
+			contents: map[content.ContentType]string{
+				content.ContentModel:    "",
+				content.ContentTokenBar: "██░░░░",
+			},
+			want: "[Claude ██░░░░]",
+		},
+		{
+			name:     "simple composer all empty",
+			composer: NewTokenComposerSimple(),
+			contents: map[content.ContentType]string{
+				content.ContentModel:    "",
+				content.ContentTokenBar: "",
+			},
+			want: "[Claude]",
+		},
+		{
+			name: "custom config with all options",
+			composer: NewTokenComposerFromConfig(TokenComposerConfig{
+				Name:        "full",
+				ShowBar:     true,
+				ShowInfo:    true,
+				ModelPrefix: "🤖 ",
+				Prefix:      "<<",
+				Suffix:      ">>",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentModel:     "Sonnet 4.5",
+				content.ContentTokenBar:  "███░░░░",
+				content.ContentTokenInfo: "50K/200K",
+			},
+			want: "<<🤖 Sonnet 4.5 ███░░░░ 50K/200K>>",
+		},
+		{
+			name: "custom config empty model with prefix uses default",
+			composer: NewTokenComposerFromConfig(TokenComposerConfig{
+				Name:        "empty-model",
+				ShowBar:     true,
+				ShowInfo:    false,
+				ModelPrefix: "🤖 ",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentModel:    "",
+				content.ContentTokenBar: "░░░░░░░░",
+			},
+			want: "🤖 Claude ░░░░░░░░",
+		},
+		{
+			name: "custom config all empty with prefix and suffix",
+			composer: NewTokenComposerFromConfig(TokenComposerConfig{
+				Name:     "empty-all",
+				ShowBar:  false,
+				ShowInfo: false,
+				Prefix:   "[",
+				Suffix:   "]",
+			}),
+			contents: map[content.ContentType]string{
+				content.ContentModel: "",
+			},
+			want: "[Claude]",
+		},
 	}
 
 	for _, tt := range tests {

@@ -15,10 +15,22 @@ import (
 // testOverrides holds values that can be overridden during testing.
 // Empty string means "use the real value".
 var (
-	overrideHomeDir       string          // Override os.UserHomeDir() in tests
-	usageAPIURL           = "https://api.anthropic.com/api/oauth/usage"
+	overrideHomeDir        string // Override os.UserHomeDir() in tests
+	usageAPIURL            = "https://api.anthropic.com/api/oauth/usage"
 	getSubscriptionUsageFn func() *UsageData // Override getSubscriptionUsage in tests (nil = real impl)
+	syncFileFn             = syncFile        // Override file sync in tests (nil = no-op)
+	currentOS              = runtime.GOOS    // Override runtime.GOOS in tests for cross-platform coverage
 )
+
+// syncFile opens a file, calls Sync(), and closes it. Returns sync error if any.
+func syncFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
 
 // getEffectiveHomeDir returns the home directory, allowing test override.
 func getEffectiveHomeDir() (string, error) {
@@ -72,10 +84,7 @@ func getPlanName(subscriptionType string) string {
 		return ""
 	}
 	// Unknown subscription type - capitalize first letter
-	if len(subscriptionType) > 0 {
-		return strings.ToUpper(subscriptionType[:1]) + subscriptionType[1:]
-	}
-	return ""
+	return strings.ToUpper(subscriptionType[:1]) + subscriptionType[1:]
 }
 
 // usageCacheData represents the file-based cache structure
@@ -90,8 +99,8 @@ type usageCacheData struct {
 	APIError        string    `json:"api_error,omitempty"` // "rate-limited", "network", "http-429", etc.
 
 	// 429 rate limit backoff (aligned with claude-hud)
-	RateLimitedCount int            `json:"rate_limited_count,omitempty"` // Consecutive 429 count
-	RetryAfterUntil  time.Time       `json:"retry_after_until,omitempty"`  // Absolute time when retry is allowed
+	RateLimitedCount int       `json:"rate_limited_count,omitempty"` // Consecutive 429 count
+	RetryAfterUntil  time.Time `json:"retry_after_until,omitempty"`  // Absolute time when retry is allowed
 
 	// Last successful data (preserved during rate-limited periods)
 	LastGoodData *usageCacheData `json:"last_good_data,omitempty"`
@@ -124,7 +133,7 @@ type UsageData struct {
 	SevenDay        float64
 	FiveHourResetAt time.Time
 	SevenDayResetAt time.Time
-	APIUnavailable bool
+	APIUnavailable  bool
 	APIError        string
 }
 
@@ -277,17 +286,13 @@ func writeUsageCache(cache *usageCacheData) error {
 	}
 
 	// 2. Sync to ensure data is persisted (optional, increases safety)
-	if f, err := os.Open(tmpPath); err == nil {
-		if syncErr := f.Sync(); syncErr != nil {
-			// Log but don't fail - sync is best effort
-			// In production, you might want to log this to a logger
-		}
-		f.Close()
+	if syncFileFn != nil {
+		syncFileFn(tmpPath) // best effort, ignore error
 	}
 
 	// 3. Atomic replace
 	// Windows: os.Rename fails if target exists, need to remove first
-	if runtime.GOOS == "windows" {
+	if currentOS == "windows" {
 		os.Remove(cachePath)
 	}
 	err = os.Rename(tmpPath, cachePath)
@@ -448,7 +453,12 @@ func writeRefreshFailedCache(oldCache *usageCacheData, isRateLimited bool, retry
 		FetchedAt:       now,
 		RefreshingSince: time.Time{},
 		APIUnavailable:  !isRateLimited,
-		APIError:        func() string { if isRateLimited { return "rate-limited" }; return "network" }(),
+		APIError: func() string {
+			if isRateLimited {
+				return "rate-limited"
+			}
+			return "network"
+		}(),
 	}
 	if isRateLimited {
 		cache.RateLimitedCount = 1

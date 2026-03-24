@@ -25,12 +25,15 @@ var (
 	commit  = "unknown"
 )
 
+// currentOS allows tests to override runtime.GOOS for cross-platform coverage.
+var currentOS = runtime.GOOS
+
 // detectWideCharTerminal checks if the current terminal renders
 // emoji as width 2 characters.
 // Returns true ONLY for terminals known to use wide character rendering.
 func detectWideCharTerminal() bool {
 	// macOS terminals typically use wide character rendering
-	if runtime.GOOS == "darwin" {
+	if currentOS == "darwin" {
 		return true
 	}
 
@@ -66,21 +69,27 @@ func init() {
 	// For non-Windows-Terminal on Windows, enable narrow Block Elements.
 	// VSCode Terminal and WARP render all Block Elements (█░▓▒) as width 1,
 	// but go-runewidth reports █ as width 2. This causes misalignment.
-	if runtime.GOOS == "windows" && os.Getenv("WT_SESSION") == "" {
+	if currentOS == "windows" && os.Getenv("WT_SESSION") == "" {
 		layout.UseNarrowBlockWidth = true
 	}
 }
 
 func main() {
+	run(os.Stdin, os.Stdout, os.Stderr, os.Args)
+}
+
+// run contains the actual statusline logic, separated from main() for testability.
+// It accepts stdin, stdout, stderr, and args as parameters so tests can inject buffers.
+func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	// Handle --version flag
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("statusline version %s (commit: %s)\n", version, commit)
+	if len(args) > 1 && (args[1] == "--version" || args[1] == "-v") {
+		fmt.Fprintf(stdout, "statusline version %s (commit: %s)\n", version, commit)
 		return
 	}
 
 	// Check for --debug flag
 	debugMode := false
-	for _, arg := range os.Args {
+	for _, arg := range args {
 		if arg == "--debug" {
 			debugMode = true
 			break
@@ -91,9 +100,9 @@ func main() {
 	initConsole()
 
 	// Read all input from stdin
-	inputBytes, err := io.ReadAll(os.Stdin)
+	inputBytes, err := io.ReadAll(stdin)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+		fmt.Fprintf(stderr, "Error reading stdin: %v\n", err)
 		return
 	}
 
@@ -108,7 +117,7 @@ func main() {
 		// Get executable directory
 		exePath, err := os.Executable()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Debug: failed to get executable path: %v\n", err)
+			fmt.Fprintf(stderr, "Debug: failed to get executable path: %v\n", err)
 		} else {
 			exeDir := filepath.Dir(exePath)
 			debugFile := filepath.Join(exeDir, "statusline.debug")
@@ -118,7 +127,7 @@ func main() {
 			if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
 				// On Windows, JSON escapes backslashes so C:\Users\xxx becomes C:\\Users\\xxx
 				// On Unix, no escaping needed for forward slashes
-				if runtime.GOOS == "windows" {
+				if currentOS == "windows" {
 					escapedHomeDir := strings.ReplaceAll(homeDir, "\\", "\\\\")
 					debugJSON = strings.ReplaceAll(debugJSON, escapedHomeDir, "~")
 				} else {
@@ -154,9 +163,9 @@ func main() {
 			// Write back
 			finalContent := strings.Join(lines, "\n") + "\n"
 			if err := os.WriteFile(debugFile, []byte(finalContent), 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Debug: failed to write debug file: %v\n", err)
+				fmt.Fprintf(stderr, "Debug: failed to write debug file: %v\n", err)
 			} else {
-				fmt.Fprintf(os.Stderr, "Debug: wrote to %s (%d entries)\n", debugFile, len(lines)/2)
+				fmt.Fprintf(stderr, "Debug: wrote to %s (%d entries)\n", debugFile, len(lines)/2)
 			}
 		}
 	}
@@ -164,7 +173,7 @@ func main() {
 	// Parse input JSON
 	var input content.StatusLineInput
 	if err := json.Unmarshal(inputBytes, &input); err != nil {
-		fmt.Fprintf(os.Stderr, "JSON parse error: %v\n", err)
+		fmt.Fprintf(stderr, "JSON parse error: %v\n", err)
 		return
 	}
 
@@ -224,7 +233,7 @@ func main() {
 
 	// Print output
 	for _, line := range lines {
-		fmt.Println(line)
+		fmt.Fprintln(stdout, line)
 	}
 }
 

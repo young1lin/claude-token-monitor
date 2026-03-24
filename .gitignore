@@ -22,7 +22,7 @@ statusline.debug
 # Go
 go.work
 vendor/
-coverage.out
+*.out
 *.coverprofile
 
 # IDE

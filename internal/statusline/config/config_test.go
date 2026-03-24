@@ -565,6 +565,36 @@ func TestComposerConfig(t *testing.T) {
 	})
 }
 
+func TestIsSingleLine(t *testing.T) {
+	t.Run("true", func(t *testing.T) {
+		cfg := &Config{Display: DisplayConfig{SingleLine: true}}
+		if !cfg.IsSingleLine() {
+			t.Error("expected true")
+		}
+	})
+	t.Run("false", func(t *testing.T) {
+		cfg := &Config{Display: DisplayConfig{SingleLine: false}}
+		if cfg.IsSingleLine() {
+			t.Error("expected false")
+		}
+	})
+}
+
+func TestIsCompact(t *testing.T) {
+	t.Run("true", func(t *testing.T) {
+		cfg := &Config{Format: FormatConfig{Compact: true}}
+		if !cfg.IsCompact() {
+			t.Error("expected true")
+		}
+	})
+	t.Run("false", func(t *testing.T) {
+		cfg := &Config{Format: FormatConfig{Compact: false}}
+		if cfg.IsCompact() {
+			t.Error("expected false")
+		}
+	})
+}
+
 func TestLoadFileWithComposerConfig(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -661,5 +691,196 @@ content:
 				}
 			}
 		})
+	}
+}
+
+func TestLoad_DefaultConfig(t *testing.T) {
+	// No config files exist -> should return default
+	tempDir := t.TempDir()
+
+	cfg, err := Load(tempDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+
+	if cfg.Format.ProgressBar != "braille" {
+		t.Errorf("Default ProgressBar = %q, want %q", cfg.Format.ProgressBar, "braille")
+	}
+}
+
+func TestLoad_ProjectConfig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create .claude/statusline.yaml in project dir
+	claudeDir := filepath.Join(tempDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	configYAML := `
+display:
+  singleLine: true
+`
+	if err := os.WriteFile(filepath.Join(claudeDir, "statusline.yaml"), []byte(configYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(tempDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Display.SingleLine {
+		t.Error("Load() should return project config with SingleLine=true")
+	}
+}
+
+func TestLoad_GlobalConfig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// No project config, create global config
+	homeDir := t.TempDir()
+	globalClaudeDir := filepath.Join(homeDir, ".claude")
+	if err := os.MkdirAll(globalClaudeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	configYAML := `
+format:
+  progressBar: ascii
+`
+	if err := os.WriteFile(filepath.Join(globalClaudeDir, "statusline.yaml"), []byte(configYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// We can't easily override os.UserHomeDir(), so this tests the project-not-found path
+	cfg, err := Load(tempDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	// Should return default since neither project nor global config is found by os.UserHomeDir
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+}
+
+func TestLoadFile_InvalidYAML(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "invalid.yaml")
+	if err := os.WriteFile(configPath, []byte("display:\n  singleLine: [not valid"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := loadFile(configPath)
+	if err == nil {
+		t.Error("loadFile() should return error for invalid YAML")
+	}
+}
+
+func TestLoadFile_NonexistentFile(t *testing.T) {
+	_, err := loadFile("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("loadFile() should return error for nonexistent file")
+	}
+}
+
+func TestLoad_ProjectConfigIsDir(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create .claude as a directory named "statusline.yaml" (not possible),
+	// but we can create a directory at the config path.
+	// Actually, we create .claude as a directory to test that a directory
+	// at the config path is skipped (not treated as a file).
+	claudeDir := filepath.Join(tempDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a directory named statusline.yaml inside .claude
+	statuslineDir := filepath.Join(claudeDir, "statusline.yaml")
+	if err := os.MkdirAll(statuslineDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load should skip the directory and fall back to default
+	cfg, err := Load(tempDir)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+	if cfg.Display.SingleLine {
+		t.Error("Load() should return default config when .claude/statusline.yaml is a directory")
+	}
+}
+
+func TestLoad_GlobalConfigFound(t *testing.T) {
+	// Arrange: set HOME to a temp dir with global config, no project config
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	globalClaudeDir := filepath.Join(homeDir, ".claude")
+	requireGoDir(t, os.MkdirAll(globalClaudeDir, 0755))
+
+	configYAML := `
+format:
+  progressBar: ascii
+`
+	requireGoDir(t, os.WriteFile(filepath.Join(globalClaudeDir, "statusline.yaml"), []byte(configYAML), 0644))
+
+	projectDir := t.TempDir()
+
+	// Act
+	cfg, err := Load(projectDir)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+	if cfg.Format.ProgressBar != "ascii" {
+		t.Errorf("Load() should return global config, got ProgressBar=%q", cfg.Format.ProgressBar)
+	}
+}
+
+// requireGoDir is a minimal helper (config tests don't use testify).
+func requireGoDir(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoad_GlobalConfigIsDir(t *testing.T) {
+	// Arrange: global config path is a directory, should skip to default
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	globalClaudeDir := filepath.Join(homeDir, ".claude")
+	requireGoDir(t, os.MkdirAll(globalClaudeDir, 0755))
+
+	// Create statusline.yaml as a directory
+	globalConfigDir := filepath.Join(globalClaudeDir, "statusline.yaml")
+	requireGoDir(t, os.MkdirAll(globalConfigDir, 0755))
+
+	projectDir := t.TempDir()
+
+	// Act
+	cfg, err := Load(projectDir)
+
+	// Assert: should fall back to default
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+	if cfg.Format.ProgressBar != "braille" {
+		t.Errorf("Load() should return default config, got ProgressBar=%q", cfg.Format.ProgressBar)
 	}
 }

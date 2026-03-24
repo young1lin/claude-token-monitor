@@ -1,5 +1,10 @@
 # Claude Token Monitor
 
+[![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/young1lin/claude-token-monitor)](https://github.com/young1lin/claude-token-monitor/releases)
+[![Coverage](https://codecov.io/gh/young1lin/claude-token-monitor/branch/main/graph/badge.svg)](https://codecov.io/gh/young1lin/claude-token-monitor)
+
 Claude Code 实时 Token 使用状态栏插件。
 
 ![](./images/claude-code-monitor.png)

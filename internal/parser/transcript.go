@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -521,15 +520,11 @@ func GetProjectName(cwd string, projectDir string) string {
 	}
 
 	parts := strings.Split(filepath.ToSlash(dir), "/")
-	if len(parts) > 0 {
-		name := parts[len(parts)-1]
-		if len(name) > 20 {
-			return name[:17] + ".."
-		}
-		return name
+	name := parts[len(parts)-1]
+	if len(name) > 20 {
+		return name[:17] + ".."
 	}
-
-	return "project"
+	return name
 }
 
 // getGitBranchForPath reads the current git branch using git command for a given path
@@ -545,9 +540,7 @@ func getGitBranchForPath(path string) string {
 	// Method 1: Try git symbolic-ref --short HEAD (most reliable for active branches)
 	// This works for normal branch checkouts and shows the branch name
 	// even if there are no commits yet
-	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
-	cmd.Dir = path
-	output, err := cmd.Output()
+	output, err := defaultCommandRunner.Run(path, "git", "symbolic-ref", "--short", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		if branch != "" && branch != "HEAD" {
@@ -557,24 +550,18 @@ func getGitBranchForPath(path string) string {
 
 	// Method 2: Try git rev-parse --abbrev-ref HEAD (fallback)
 	// This returns "HEAD" for detached HEAD state or fresh repos
-	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = path
-	output, err = cmd.Output()
+	output, err = defaultCommandRunner.Run(path, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		// For freshly initialized repos with no commits, show "(empty)"
 		// For detached HEAD, show the commit abbreviation
 		if branch == "" || branch == "HEAD" {
 			// Check if this is a fresh repo (exists but no commits)
-			cmd = exec.Command("git", "status", "--porcelain")
-			cmd.Dir = path
-			_, err = cmd.Output()
+			_, err = defaultCommandRunner.Run(path, "git", "status", "--porcelain")
 			if err == nil {
 				// Git repo exists but might be empty
 				// Try to get the default branch name
-				cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "origin/HEAD")
-				cmd.Dir = path
-				output, err = cmd.Output()
+				output, err = defaultCommandRunner.Run(path, "git", "rev-parse", "--abbrev-ref", "origin/HEAD")
 				if err == nil {
 					remoteBranch := strings.TrimSpace(string(output))
 					if strings.HasPrefix(remoteBranch, "origin/") {

@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetUserSkillsCount(t *testing.T) {
@@ -194,6 +197,184 @@ func TestFormatSkillsDisplay(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("formatSkillsDisplay(%d, %d) = %q, want %q", tt.project, tt.user, got, tt.want)
 			}
+		})
+	}
+}
+
+func TestCountSkillDirs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) string
+		want  int
+	}{
+		{
+			name: "non-existent directory returns zero",
+			setup: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "nonexistent")
+			},
+			want: 0,
+		},
+		{
+			name: "empty directory returns zero",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				return dir
+			},
+			want: 0,
+		},
+		{
+			name: "only files no directories returns zero",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme"), 0644)
+				os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0644)
+				return dir
+			},
+			want: 0,
+		},
+		{
+			name: "mixed entries counts only non-hidden directories",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				// Visible directories
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "frontend-design"), 0755))
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "pdf"), 0755))
+				// Hidden directories
+				require.NoError(t, os.Mkdir(filepath.Join(dir, ".hidden-dir"), 0755))
+				// Files (should be ignored)
+				os.WriteFile(filepath.Join(dir, "README.md"), []byte("readme"), 0644)
+				os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0644)
+				return dir
+			},
+			want: 2,
+		},
+		{
+			name: "all hidden directories returns zero",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(dir, ".hidden1"), 0755))
+				require.NoError(t, os.Mkdir(filepath.Join(dir, ".hidden2"), 0755))
+				return dir
+			},
+			want: 0,
+		},
+		{
+			name: "only directories no files",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "skill1"), 0755))
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "skill2"), 0755))
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "skill3"), 0755))
+				return dir
+			},
+			want: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			dir := tt.setup(t)
+
+			// Act
+			got := countSkillDirs(dir)
+
+			// Assert
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCountSkillFiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) string
+		want  int
+	}{
+		{
+			name: "non-existent directory returns zero",
+			setup: func(t *testing.T) string {
+				return filepath.Join(t.TempDir(), "nonexistent")
+			},
+			want: 0,
+		},
+		{
+			name: "empty directory returns zero",
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			want: 0,
+		},
+		{
+			name: "only .md files",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "commit.md"), []byte("# commit"), 0644)
+				os.WriteFile(filepath.Join(dir, "review.md"), []byte("# review"), 0644)
+				os.WriteFile(filepath.Join(dir, "deploy.md"), []byte("# deploy"), 0644)
+				return dir
+			},
+			want: 3,
+		},
+		{
+			name: "non-.md files are skipped",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "commit.md"), []byte("# commit"), 0644)
+				os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0644)
+				os.WriteFile(filepath.Join(dir, "script.sh"), []byte("#!/bin/sh"), 0644)
+				os.WriteFile(filepath.Join(dir, "data.yaml"), []byte("key: val"), 0644)
+				return dir
+			},
+			want: 1,
+		},
+		{
+			name: "hidden files are skipped",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "commit.md"), []byte("# commit"), 0644)
+				os.WriteFile(filepath.Join(dir, ".draft.md"), []byte("# draft"), 0644)
+				os.WriteFile(filepath.Join(dir, ".hidden"), []byte("hidden"), 0644)
+				return dir
+			},
+			want: 1,
+		},
+		{
+			name: "subdirectories are skipped",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "commit.md"), []byte("# commit"), 0644)
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0755))
+				os.WriteFile(filepath.Join(dir, "subdir", "nested.md"), []byte("nested"), 0644)
+				return dir
+			},
+			want: 1,
+		},
+		{
+			name: "mixed entries",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				os.WriteFile(filepath.Join(dir, "commit.md"), []byte("# commit"), 0644)
+				os.WriteFile(filepath.Join(dir, "review.md"), []byte("# review"), 0644)
+				os.WriteFile(filepath.Join(dir, "config.json"), []byte("{}"), 0644)
+				os.WriteFile(filepath.Join(dir, ".hidden.md"), []byte("hidden"), 0644)
+				require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0755))
+				return dir
+			},
+			want: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			dir := tt.setup(t)
+
+			// Act
+			got := countSkillFiles(dir)
+
+			// Assert
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

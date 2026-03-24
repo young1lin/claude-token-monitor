@@ -2,7 +2,6 @@ package content
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -35,7 +34,7 @@ func (c *SkillsCollector) Collect(input interface{}, summary interface{}) (strin
 
 // getUserSkillsCount counts user-level skills in ~/.claude/skills/
 func getUserSkillsCount() int {
-	homeDir, err := os.UserHomeDir()
+	homeDir, err := defaultFileSystem.UserHomeDir()
 	if err != nil {
 		return 0
 	}
@@ -51,7 +50,7 @@ func getProjectSkillsCount(cwd string) int {
 
 // countSkillDirs counts non-hidden subdirectories (for user skills)
 func countSkillDirs(dir string) int {
-	entries, err := os.ReadDir(dir)
+	entries, err := defaultFileSystem.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
@@ -66,7 +65,7 @@ func countSkillDirs(dir string) int {
 
 // countSkillFiles counts .md files in a directory (for project skills/commands)
 func countSkillFiles(dir string) int {
-	entries, err := os.ReadDir(dir)
+	entries, err := defaultFileSystem.ReadDir(dir)
 	if err != nil {
 		return 0
 	}
