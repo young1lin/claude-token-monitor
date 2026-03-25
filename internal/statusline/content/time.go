@@ -165,7 +165,7 @@ type QuotaCollector struct {
 // NewQuotaCollector creates a new quota collector
 func NewQuotaCollector() *QuotaCollector {
 	return &QuotaCollector{
-		BaseCollector: NewBaseCollector(ContentQuota, 5*time.Minute, true),
+		BaseCollector: NewBaseCollectorWithTimeout(ContentQuota, 5*time.Minute, 4*time.Second, true),
 	}
 }
 

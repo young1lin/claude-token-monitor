@@ -39,22 +39,22 @@ func getProcessNameAndPPIDPlatform(pid int) (string, int, error) {
 	}
 
 	// Format: pid (comm) state ppid ...
-	// comm can contain spaces and parentheses, so find the last ')' first.
-	fields := strings.SplitN(string(stat), " ", 3)
-	if len(fields) < 3 {
+	// comm can contain spaces and parentheses, so locate the parens directly.
+	s := string(stat)
+	lpIdx := strings.LastIndex(s, ")")
+	if lpIdx < 0 {
+		return "", 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
+	}
+	lpIdx2 := strings.Index(s, "(")
+	if lpIdx2 < 0 {
 		return "", 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
 	}
 
-	// Extract from "(comm) state ppid ..."
-	rest := fields[2]
-	rpIdx := strings.Index(rest, ") ")
-	if rpIdx < 0 {
-		return "", 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
-	}
+	comm := s[lpIdx2+1 : lpIdx]
 
-	comm := rest[:rpIdx]
-	afterRP := rest[rpIdx+2:]
-	afterFields := strings.SplitN(afterRP, " ", 4)
+	// After ") " comes: state ppid ...
+	after := s[lpIdx+2:]
+	afterFields := strings.SplitN(after, " ", 3)
 	if len(afterFields) < 2 {
 		return "", 0, fmt.Errorf("unexpected /proc/%d/stat format", pid)
 	}

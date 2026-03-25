@@ -112,10 +112,15 @@ func (m *Manager) collectWithTimeout(ct ContentType, input, summary interface{})
 		ch <- collectResult{v, err}
 	}()
 
+	timeout := collectorTimeout
+	if collector, ok := m.collectors[ct]; ok && collector.Timeout() > 0 {
+		timeout = collector.Timeout()
+	}
+
 	select {
 	case r := <-ch:
 		return r.value, r.err == nil
-	case <-time.After(collectorTimeout):
+	case <-time.After(timeout):
 		return "", false
 	}
 }

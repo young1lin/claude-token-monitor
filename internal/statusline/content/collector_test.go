@@ -108,6 +108,28 @@ func TestBaseCollector_Optional(t *testing.T) {
 	}
 }
 
+func TestBaseCollector_Timeout_DefaultZero(t *testing.T) {
+	// Arrange — NewBaseCollector does not set timeout
+	c := NewBaseCollector(ContentModel, 5*time.Second, false)
+
+	// Act
+	got := c.Timeout()
+
+	// Assert — zero means "use manager default"
+	assert.Equal(t, time.Duration(0), got)
+}
+
+func TestBaseCollector_Timeout_CustomValue(t *testing.T) {
+	// Arrange — NewBaseCollectorWithTimeout sets a custom timeout
+	c := NewBaseCollectorWithTimeout(ContentQuota, 5*time.Minute, 4*time.Second, true)
+
+	// Assert
+	assert.Equal(t, 4*time.Second, c.Timeout())
+	assert.Equal(t, ContentQuota, c.Type())
+	assert.Equal(t, 5*time.Minute, c.CacheTTL())
+	assert.True(t, c.Optional())
+}
+
 func TestCachedContent_IsExpired(t *testing.T) {
 	tests := []struct {
 		name      string

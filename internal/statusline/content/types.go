@@ -43,7 +43,8 @@ type ContentCollector interface {
 	Type() ContentType
 	Collect(input interface{}, summary interface{}) (string, error)
 	CacheTTL() time.Duration
-	Optional() bool // Returns true if content is optional (can be empty)
+	Timeout() time.Duration // Collector-specific timeout (0 = use manager default)
+	Optional() bool         // Returns true if content is optional (can be empty)
 }
 
 // cachedContent holds cached content with expiration

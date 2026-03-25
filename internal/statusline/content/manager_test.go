@@ -14,6 +14,7 @@ import (
 type stubCollector struct {
 	contentType ContentType
 	cacheTTL    time.Duration
+	timeout     time.Duration
 	optional    bool
 	collectFunc func(input interface{}, summary interface{}) (string, error)
 	callCount   int
@@ -40,6 +41,10 @@ func (s *stubCollector) CacheTTL() time.Duration {
 
 func (s *stubCollector) Optional() bool {
 	return s.optional
+}
+
+func (s *stubCollector) Timeout() time.Duration {
+	return s.timeout
 }
 
 func (s *stubCollector) getCallCount() int {
@@ -387,6 +392,60 @@ func TestCollectWithTimeout_ErrorCollector(t *testing.T) {
 
 	// Assert
 	assert.False(t, ok, "error collector should return ok=false")
+	assert.Empty(t, value)
+}
+
+func TestCollectWithTimeout_CustomCollectorTimeout(t *testing.T) {
+	// Arrange — global timeout is very short, but collector has its own longer timeout
+	old := collectorTimeout
+	collectorTimeout = 10 * time.Millisecond
+	defer func() { collectorTimeout = old }()
+
+	m := NewManager()
+
+	// This collector has 2s custom timeout and completes in 50ms
+	custom := newStubCollector(ContentQuota, 5*time.Minute, true)
+	custom.timeout = 2 * time.Second
+	blockCh := make(chan struct{})
+	custom.collectFunc = func(input, summary interface{}) (string, error) {
+		<-time.After(50 * time.Millisecond)
+		close(blockCh)
+		return "quota-data", nil
+	}
+	m.Register(custom)
+
+	// Act — should NOT timeout because collector uses its own 2s timeout
+	value, ok := m.collectWithTimeout(ContentQuota, nil, nil)
+
+	// Assert
+	assert.True(t, ok, "collector with custom timeout should succeed")
+	assert.Equal(t, "quota-data", value)
+}
+
+func TestCollectWithTimeout_CustomCollectorTimeoutExceeded(t *testing.T) {
+	// Arrange — global timeout is long, but collector has its own short timeout
+	old := collectorTimeout
+	collectorTimeout = 5 * time.Second
+	defer func() { collectorTimeout = old }()
+
+	m := NewManager()
+
+	// This collector has 20ms custom timeout and blocks for 5s
+	custom := newStubCollector(ContentQuota, 5*time.Minute, true)
+	custom.timeout = 20 * time.Millisecond
+	blockCh := make(chan struct{})
+	custom.collectFunc = func(input, summary interface{}) (string, error) {
+		<-blockCh // blocks
+		return "never", nil
+	}
+	defer close(blockCh)
+	m.Register(custom)
+
+	// Act — should timeout because collector's own timeout is 20ms
+	value, ok := m.collectWithTimeout(ContentQuota, nil, nil)
+
+	// Assert
+	assert.False(t, ok, "collector should timeout based on its custom timeout")
 	assert.Empty(t, value)
 }
 
