@@ -1,9 +1,14 @@
 # Claude Token Monitor
 
+[![Claude Plugin](https://img.shields.io/badge/Claude_Code-Plugin-blueviolet)](https://github.com/young1lin/claude-token-monitor)
 [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/young1lin/claude-token-monitor)](https://github.com/young1lin/claude-token-monitor/releases)
 [![Coverage](https://codecov.io/gh/young1lin/claude-token-monitor/branch/main/graph/badge.svg)](https://codecov.io/gh/young1lin/claude-token-monitor)
+[![Go Report Card](https://goreportcard.com/badge/github.com/young1lin/claude-token-monitor)](https://goreportcard.com/report/github.com/young1lin/claude-token-monitor)
+[![Test](https://github.com/young1lin/claude-token-monitor/actions/workflows/test.yml/badge.svg)](https://github.com/young1lin/claude-token-monitor/actions/workflows/test.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/young1lin/claude-token-monitor/releases)
+[![Downloads](https://img.shields.io/github/downloads/young1lin/claude-token-monitor/total)](https://github.com/young1lin/claude-token-monitor/releases)
 
 Claude Code 实时 Token 使用状态栏插件。
 
