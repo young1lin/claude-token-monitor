@@ -26,6 +26,7 @@ func DefaultLayout() *Layout {
 			{ContentType: "time-quota", Position: Position{Row: 2, Col: 0}, Optional: false},
 			{ContentType: "agent", Position: Position{Row: 2, Col: 1}, Optional: true},
 			{ContentType: "todo", Position: Position{Row: 2, Col: 2}, Optional: true},
+			{ContentType: "parent-memory", Position: Position{Row: 2, Col: 3}, Optional: true},
 
 			// Row 3: per-tool status detail, full-width, NOT column-aligned
 			{ContentType: "tool-status-detail", Position: Position{Row: 3, Col: 0}, Optional: true, NoAlign: true},

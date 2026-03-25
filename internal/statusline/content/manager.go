@@ -8,6 +8,12 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
 )
 
+// collectorTimeout is the maximum duration for a single content collector.
+// 500ms is generous for local operations (git, filesystem, syscall) while
+// preventing a stuck collector from blocking the entire statusline.
+// All collectors run in parallel, so total wall-clock ≈ max(all collectors).
+var collectorTimeout = 500 * time.Millisecond
+
 // Manager manages content collectors, composers, and caching
 type Manager struct {
 	collectors map[ContentType]ContentCollector
@@ -87,7 +93,34 @@ func (m *Manager) Get(contentType ContentType, input interface{}, summary interf
 	return value, nil
 }
 
-// GetAll retrieves all content items in parallel
+// collectWithTimeout runs a collector with timeout and panic recovery.
+// Returns ("", false) if the collector times out, panics, or returns an error.
+func (m *Manager) collectWithTimeout(ct ContentType, input, summary interface{}) (string, bool) {
+	type collectResult struct {
+		value string
+		err   error
+	}
+
+	ch := make(chan collectResult, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- collectResult{"", fmt.Errorf("collector %s panicked: %v", ct, r)}
+			}
+		}()
+		v, err := m.Get(ct, input, summary)
+		ch <- collectResult{v, err}
+	}()
+
+	select {
+	case r := <-ch:
+		return r.value, r.err == nil
+	case <-time.After(collectorTimeout):
+		return "", false
+	}
+}
+
+// GetAll retrieves all content items in parallel with timeout and panic recovery.
 func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
@@ -97,7 +130,7 @@ func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType
 		wg.Add(1)
 		go func(ct ContentType) {
 			defer wg.Done()
-			if value, err := m.Get(ct, input, summary); err == nil && value != "" {
+			if value, ok := m.collectWithTimeout(ct, input, summary); ok && value != "" {
 				mu.Lock()
 				result[ct] = value
 				mu.Unlock()
@@ -110,6 +143,7 @@ func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType
 }
 
 // GetOptionalContent returns content for optional collectors that have values, in parallel
+// with timeout and panic recovery.
 func (m *Manager) GetOptionalContent(input interface{}, summary interface{}) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
@@ -119,19 +153,16 @@ func (m *Manager) GetOptionalContent(input interface{}, summary interface{}) map
 		wg.Add(1)
 		go func(ct ContentType, col ContentCollector) {
 			defer wg.Done()
-			if col.Optional() {
-				if value, err := m.Get(ct, input, summary); err == nil && value != "" {
-					mu.Lock()
-					result[ct] = value
-					mu.Unlock()
-				}
-			} else {
-				if value, err := m.Get(ct, input, summary); err == nil {
-					mu.Lock()
-					result[ct] = value
-					mu.Unlock()
-				}
+			value, ok := m.collectWithTimeout(ct, input, summary)
+			if !ok {
+				return
 			}
+			if col.Optional() && value == "" {
+				return
+			}
+			mu.Lock()
+			result[ct] = value
+			mu.Unlock()
 		}(contentType, collector)
 	}
 

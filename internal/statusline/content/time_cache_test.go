@@ -1565,6 +1565,240 @@ func TestSyncFile_OpenError(t *testing.T) {
 	require.NotNil(t, got)
 }
 
+func TestReadUsageCache_CorruptJSON(t *testing.T) {
+	// Arrange — write corrupt JSON to cache file
+	homeDir := t.TempDir()
+	old := overrideHomeDir
+	overrideHomeDir = homeDir
+	defer func() { overrideHomeDir = old }()
+
+	cachePath := filepath.Join(homeDir, ".claude", usageCacheFile)
+	require.NoError(t, os.MkdirAll(filepath.Dir(cachePath), 0755))
+	require.NoError(t, os.WriteFile(cachePath, []byte("{corrupt!!!"), 0644))
+
+	// Act
+	result := readUsageCache()
+
+	// Assert
+	assert.Nil(t, result, "corrupt JSON should return nil")
+}
+
+func TestWriteUsageCache_NonWindowsBranch(t *testing.T) {
+	// Arrange — simulate non-Windows to cover the branch that skips os.Remove
+	homeDir := t.TempDir()
+	old := overrideHomeDir
+	overrideHomeDir = homeDir
+	defer func() { overrideHomeDir = old }()
+	oldOS := currentOS
+	currentOS = "linux"
+	defer func() { currentOS = oldOS }()
+
+	cache := &usageCacheData{FiveHour: 77.0, FetchedAt: time.Now()}
+
+	// Act
+	err := writeUsageCache(cache)
+
+	// Assert
+	require.NoError(t, err)
+	got := readUsageCache()
+	require.NotNil(t, got)
+	assert.InDelta(t, 77.0, got.FiveHour, 0.001)
+}
+
+func TestSyncFile_RealOpenError(t *testing.T) {
+	// Arrange — call real syncFile with a nonexistent path to cover the error return
+	err := syncFile(filepath.Join(t.TempDir(), "nonexistent", "file"))
+
+	// Assert
+	assert.Error(t, err)
+}
+
+func TestGetEffectiveHomeDir_RealPath(t *testing.T) {
+	// Arrange — clear override to exercise os.UserHomeDir() path
+	old := overrideHomeDir
+	overrideHomeDir = ""
+	defer func() { overrideHomeDir = old }()
+
+	// Act
+	got, err := getEffectiveHomeDir()
+
+	// Assert
+	require.NoError(t, err)
+	assert.NotEmpty(t, got)
+}
+
+func TestGetLocalTimeZoneName_PlainTZ(t *testing.T) {
+	// Arrange — TZ without colon prefix, covers the TrimPrefix no-op path
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+
+	os.Setenv("TZ", "Asia/Shanghai")
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "Asia/Shanghai", got)
+}
+
+// ---------------------------------------------------------------------------
+// getLocalTimeZoneName – DI-based timezone offset tests
+// ---------------------------------------------------------------------------
+
+func TestGetLocalTimeZoneName_UTC(t *testing.T) {
+	// Arrange — TZ unset, readlink fails, offset == 0
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+	os.Setenv("TZ", "")
+
+	oldRL := readlinkFn
+	readlinkFn = func(name string) (string, error) { return "", fmt.Errorf("not found") }
+	defer func() { readlinkFn = oldRL }()
+
+	oldTZ := timeZoneFn
+	timeZoneFn = func() (string, int) { return "UTC", 0 }
+	defer func() { timeZoneFn = oldTZ }()
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "UTC", got)
+}
+
+func TestGetLocalTimeZoneName_NegativeOffset(t *testing.T) {
+	// Arrange — offset = -18000 (UTC-5)
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+	os.Setenv("TZ", "")
+
+	oldRL := readlinkFn
+	readlinkFn = func(name string) (string, error) { return "", fmt.Errorf("not found") }
+	defer func() { readlinkFn = oldRL }()
+
+	oldTZ := timeZoneFn
+	timeZoneFn = func() (string, int) { return "EST", -18000 }
+	defer func() { timeZoneFn = oldTZ }()
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "UTC-5", got)
+}
+
+func TestGetLocalTimeZoneName_OffsetWithMinutes(t *testing.T) {
+	// Arrange — offset = 19800 (UTC+5:30, India)
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+	os.Setenv("TZ", "")
+
+	oldRL := readlinkFn
+	readlinkFn = func(name string) (string, error) { return "", fmt.Errorf("not found") }
+	defer func() { readlinkFn = oldRL }()
+
+	oldTZ := timeZoneFn
+	timeZoneFn = func() (string, int) { return "IST", 19800 }
+	defer func() { timeZoneFn = oldTZ }()
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "UTC+5:30", got)
+}
+
+func TestGetLocalTimeZoneName_NegativeOffsetWithMinutes(t *testing.T) {
+	// Arrange — offset = -34200 (UTC-9:30, Marquesas)
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+	os.Setenv("TZ", "")
+
+	oldRL := readlinkFn
+	readlinkFn = func(name string) (string, error) { return "", fmt.Errorf("not found") }
+	defer func() { readlinkFn = oldRL }()
+
+	oldTZ := timeZoneFn
+	timeZoneFn = func() (string, int) { return "MART", -34200 }
+	defer func() { timeZoneFn = oldTZ }()
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "UTC-9:30", got)
+}
+
+func TestGetLocalTimeZoneName_Readlink(t *testing.T) {
+	// Arrange — readlink returns a valid zoneinfo path
+	originalTZ := os.Getenv("TZ")
+	defer os.Setenv("TZ", originalTZ)
+	os.Setenv("TZ", "")
+
+	oldRL := readlinkFn
+	readlinkFn = func(name string) (string, error) {
+		return "/usr/share/zoneinfo/Asia/Tokyo", nil
+	}
+	defer func() { readlinkFn = oldRL }()
+
+	// Act
+	got := getLocalTimeZoneName()
+
+	// Assert
+	assert.Equal(t, "Asia/Tokyo", got)
+}
+
+// ---------------------------------------------------------------------------
+// readUsageCache / writeUsageCache / getSubscriptionUsage – homeDir error
+// ---------------------------------------------------------------------------
+
+func TestReadUsageCache_HomeDirErrorViaFn(t *testing.T) {
+	// Arrange — inject getHomeDirFn that returns error
+	oldFn := getHomeDirFn
+	getHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home") }
+	defer func() { getHomeDirFn = oldFn }()
+
+	// Act
+	result := readUsageCache()
+
+	// Assert
+	assert.Nil(t, result, "should return nil when home dir unavailable")
+}
+
+func TestWriteUsageCache_HomeDirErrorViaFn(t *testing.T) {
+	// Arrange
+	oldFn := getHomeDirFn
+	getHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home") }
+	defer func() { getHomeDirFn = oldFn }()
+
+	cache := &usageCacheData{FiveHour: 10.0, FetchedAt: time.Now()}
+
+	// Act
+	err := writeUsageCache(cache)
+
+	// Assert
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no home")
+}
+
+func TestGetSubscriptionQuota_NilFnFallsThrough(t *testing.T) {
+	// Arrange — getSubscriptionUsageFn = nil forces real getSubscriptionUsage() path.
+	// With getHomeDirFn returning error, getSubscriptionUsage() returns nil quickly.
+	oldUsageFn := getSubscriptionUsageFn
+	getSubscriptionUsageFn = nil
+	defer func() { getSubscriptionUsageFn = oldUsageFn }()
+
+	oldHomeFn := getHomeDirFn
+	getHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home") }
+	defer func() { getHomeDirFn = oldHomeFn }()
+
+	// Act
+	result := getSubscriptionQuota(nil)
+
+	// Assert
+	assert.Empty(t, result, "should return empty when usage unavailable")
+}
+
 func TestSyncFile_NilFn(t *testing.T) {
 	// Arrange: set syncFileFn to nil — should skip sync
 	oldFn := syncFileFn

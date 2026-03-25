@@ -17,9 +17,12 @@ import (
 var (
 	overrideHomeDir        string // Override os.UserHomeDir() in tests
 	usageAPIURL            = "https://api.anthropic.com/api/oauth/usage"
-	getSubscriptionUsageFn func() *UsageData // Override getSubscriptionUsage in tests (nil = real impl)
-	syncFileFn             = syncFile        // Override file sync in tests (nil = no-op)
-	currentOS              = runtime.GOOS    // Override runtime.GOOS in tests for cross-platform coverage
+	getSubscriptionUsageFn func() *UsageData                                   // Override getSubscriptionUsage in tests (nil = real impl)
+	syncFileFn             = syncFile                                          // Override file sync in tests (nil = no-op)
+	currentOS              = runtime.GOOS                                      // Override runtime.GOOS in tests for cross-platform coverage
+	readlinkFn             = os.Readlink                                       // Override os.Readlink in tests
+	timeZoneFn             = func() (string, int) { return time.Now().Zone() } // Override in tests
+	getHomeDirFn           = getEffectiveHomeDir                               // Override in tests for error injection
 )
 
 // syncFile opens a file, calls Sync(), and closes it. Returns sync error if any.
@@ -239,7 +242,7 @@ func getCachePath(homeDir string) string {
 
 // readUsageCache reads the cache file (no lock, direct read)
 func readUsageCache() *usageCacheData {
-	homeDir, err := getEffectiveHomeDir()
+	homeDir, err := getHomeDirFn()
 	if err != nil {
 		return nil
 	}
@@ -257,7 +260,7 @@ func readUsageCache() *usageCacheData {
 
 // writeUsageCache writes cache atomically (temp file + rename)
 func writeUsageCache(cache *usageCacheData) error {
-	homeDir, err := getEffectiveHomeDir()
+	homeDir, err := getHomeDirFn()
 	if err != nil {
 		return err
 	}
@@ -496,13 +499,13 @@ func getLocalTimeZoneName() string {
 		return strings.TrimPrefix(tz, ":")
 	}
 
-	if linkTarget, err := os.Readlink("/etc/localtime"); err == nil {
+	if linkTarget, err := readlinkFn("/etc/localtime"); err == nil {
 		if idx := strings.LastIndex(linkTarget, "zoneinfo/"); idx >= 0 {
 			return linkTarget[idx+9:]
 		}
 	}
 
-	_, zoneOffset := time.Now().Zone()
+	_, zoneOffset := timeZoneFn()
 	if zoneOffset == 0 {
 		return "UTC"
 	}
@@ -542,7 +545,7 @@ func getSubscriptionUsage() *UsageData {
 	}
 
 	// Need refresh - read credentials and call API
-	homeDir, err := getEffectiveHomeDir()
+	homeDir, err := getHomeDirFn()
 	if err != nil {
 		return fallbackOrNil(cache)
 	}

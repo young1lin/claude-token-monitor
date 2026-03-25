@@ -27,6 +27,7 @@ const (
 	ContentSkills           ContentType = "skills"
 	ContentQuota            ContentType = "quota"
 	ContentToolStatusDetail ContentType = "tool-status-detail"
+	ContentParentMemory     ContentType = "parent-memory"
 )
 
 // Content represents a content fragment

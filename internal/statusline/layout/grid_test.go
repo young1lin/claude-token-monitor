@@ -14,7 +14,7 @@ func TestDefaultLayout(t *testing.T) {
 
 	// Assert
 	require.NotNil(t, layout)
-	assert.Equal(t, 10, len(layout.Cells), "default layout should have 10 cells")
+	assert.Equal(t, 11, len(layout.Cells), "default layout should have 11 cells")
 
 	expectedCells := []struct {
 		contentType string
@@ -31,6 +31,7 @@ func TestDefaultLayout(t *testing.T) {
 		{"time-quota", 2, 0, false, false},
 		{"agent", 2, 1, true, false},
 		{"todo", 2, 2, true, false},
+		{"parent-memory", 2, 3, true, false},
 		{"tool-status-detail", 3, 0, true, true},
 	}
 

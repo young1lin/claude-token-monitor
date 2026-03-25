@@ -296,6 +296,7 @@ func registerAllCollectors(mgr *content.Manager) {
 		content.NewCurrentTimeCollector(),
 		content.NewQuotaCollector(),
 		content.NewToolStatusDetailCollector(),
+		content.NewParentMemoryCollector(),
 	)
 }
 

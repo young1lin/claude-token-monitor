@@ -267,6 +267,129 @@ func TestManager_ClearTypeCache(t *testing.T) {
 	assert.Equal(t, 1, stub2.getCallCount(), "token-bar should still use cache")
 }
 
+// --- Timeout and panic recovery tests ---
+
+func TestGetAll_PanicRecovery(t *testing.T) {
+	// Arrange
+	m := NewManager()
+	normal := newStubCollector(ContentModel, 5*time.Second, false)
+	panicking := newStubCollector(ContentAgent, 5*time.Second, false)
+	panicking.collectFunc = func(input, summary interface{}) (string, error) {
+		panic("collector exploded")
+	}
+	m.RegisterAll(normal, panicking)
+
+	// Act — should NOT panic
+	result := m.GetAll(nil, nil)
+
+	// Assert
+	assert.Contains(t, result, ContentModel, "normal collector should succeed")
+	assert.NotContains(t, result, ContentAgent, "panicking collector should be skipped")
+}
+
+func TestGetAll_TimeoutSkipsSlowCollector(t *testing.T) {
+	// Arrange — use a very short timeout so we don't sleep
+	old := collectorTimeout
+	collectorTimeout = 10 * time.Millisecond
+	defer func() { collectorTimeout = old }()
+
+	m := NewManager()
+	fast := newStubCollector(ContentModel, 5*time.Second, false)
+
+	slow := newStubCollector(ContentAgent, 5*time.Second, false)
+	blockCh := make(chan struct{})
+	slow.collectFunc = func(input, summary interface{}) (string, error) {
+		<-blockCh // blocks until channel is closed
+		return "never", nil
+	}
+	defer close(blockCh) // cleanup: unblock the goroutine on test exit
+
+	m.RegisterAll(fast, slow)
+
+	// Act
+	result := m.GetAll(nil, nil)
+
+	// Assert
+	assert.Contains(t, result, ContentModel, "fast collector should succeed")
+	assert.NotContains(t, result, ContentAgent, "slow collector should be timed out")
+}
+
+func TestGetOptionalContent_PanicRecovery(t *testing.T) {
+	// Arrange
+	m := NewManager()
+	normal := newStubCollector(ContentModel, 5*time.Second, false)
+	panicking := newStubCollector(ContentAgent, 5*time.Second, true)
+	panicking.collectFunc = func(input, summary interface{}) (string, error) {
+		panic("optional collector exploded")
+	}
+	m.RegisterAll(normal, panicking)
+
+	// Act — should NOT panic
+	result := m.GetOptionalContent(nil, nil)
+
+	// Assert
+	assert.Contains(t, result, ContentModel, "normal collector should succeed")
+	assert.NotContains(t, result, ContentAgent, "panicking optional collector should be skipped")
+}
+
+func TestGetOptionalContent_TimeoutSkipsSlowCollector(t *testing.T) {
+	// Arrange
+	old := collectorTimeout
+	collectorTimeout = 10 * time.Millisecond
+	defer func() { collectorTimeout = old }()
+
+	m := NewManager()
+	fast := newStubCollector(ContentModel, 5*time.Second, false)
+
+	slow := newStubCollector(ContentAgent, 5*time.Second, true)
+	blockCh := make(chan struct{})
+	slow.collectFunc = func(input, summary interface{}) (string, error) {
+		<-blockCh
+		return "never", nil
+	}
+	defer close(blockCh)
+
+	m.RegisterAll(fast, slow)
+
+	// Act
+	result := m.GetOptionalContent(nil, nil)
+
+	// Assert
+	assert.Contains(t, result, ContentModel, "fast collector should succeed")
+	assert.NotContains(t, result, ContentAgent, "slow optional collector should be timed out")
+}
+
+func TestCollectWithTimeout_NormalCollector(t *testing.T) {
+	// Arrange
+	m := NewManager()
+	stub := newStubCollector(ContentModel, 5*time.Second, false)
+	m.Register(stub)
+
+	// Act
+	value, ok := m.collectWithTimeout(ContentModel, nil, nil)
+
+	// Assert
+	assert.True(t, ok)
+	assert.Equal(t, "stub-model", value)
+}
+
+func TestCollectWithTimeout_ErrorCollector(t *testing.T) {
+	// Arrange
+	m := NewManager()
+	stub := newStubCollector(ContentModel, 5*time.Second, false)
+	stub.collectFunc = func(input, summary interface{}) (string, error) {
+		return "", fmt.Errorf("something broke")
+	}
+	m.Register(stub)
+
+	// Act
+	value, ok := m.collectWithTimeout(ContentModel, nil, nil)
+
+	// Assert
+	assert.False(t, ok, "error collector should return ok=false")
+	assert.Empty(t, value)
+}
+
 // --- Composer tests ---
 
 func TestManager_RegisterComposer(t *testing.T) {
