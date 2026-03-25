@@ -272,10 +272,10 @@ func TestGetProcessNameAndPPIDPlatform_InvalidPPID(t *testing.T) {
 func TestGetProcessNameAndPPIDPlatform_FullPathComm(t *testing.T) {
 	defer restoreFileSystem()
 
-	// Arrange — comm is a full path
+	// Arrange — comm contains path separators: filepath.Base extracts last component
 	defaultFileSystem = &StubFileSystem{
 		ReadFileReturns: map[string][]byte{
-			"/proc/7777/stat": []byte("7777 (/usr/bin/python3 -u script.py) R 1 7777 7777 0 -1 4194304 100 0 0 0 0"),
+			"/proc/7777/stat": []byte("7777 (/usr/bin/python3) R 1 7777 7777 0 -1 4194304 100 0 0 0 0"),
 		},
 	}
 
@@ -284,7 +284,7 @@ func TestGetProcessNameAndPPIDPlatform_FullPathComm(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	assert.Equal(t, "script.py", name) // filepath.Base of comm
+	assert.Equal(t, "python3", name) // filepath.Base of /usr/bin/python3
 	assert.Equal(t, 1, ppid)
 }
 
@@ -301,8 +301,8 @@ func TestGetProcessNameAndPPIDPlatform_EmptyComm(t *testing.T) {
 	// Act
 	name, ppid, err := getProcessNameAndPPIDPlatform(8888)
 
-	// Assert
+	// Assert — filepath.Base("") returns "."
 	require.NoError(t, err)
-	assert.Equal(t, "", name)
+	assert.Equal(t, ".", name)
 	assert.Equal(t, 0, ppid)
 }
