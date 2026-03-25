@@ -3,6 +3,7 @@ package content
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -78,8 +79,10 @@ func getProjectName(cwd string) string {
 		return ""
 	}
 
-	// Use filepath.Base which handles both \ and / correctly
-	name := filepath.Base(cwd)
+	// Normalize backslashes manually — filepath.Base on Linux treats '\' as
+	// a regular character, not a path separator.
+	normalized := strings.ReplaceAll(cwd, "\\", "/")
+	name := filepath.Base(normalized)
 
 	if len(name) > 25 {
 		return name[:22] + ".."

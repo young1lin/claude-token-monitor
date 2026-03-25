@@ -1433,11 +1433,18 @@ func TestGetLocalTimeZoneName_ColonPrefix(t *testing.T) {
 }
 
 func TestGetLocalTimeZoneName_EmptyTZ_NoEtcLocaltime(t *testing.T) {
-	// On Windows, /etc/localtime doesn't exist, so this tests the offset fallback
+	// Stub readlinkFn so /etc/localtime is "not found" even on Linux CI.
+	// This forces the offset fallback path.
 	originalTZ := os.Getenv("TZ")
 	defer os.Setenv("TZ", originalTZ)
+	oldReadlink := readlinkFn
+	defer func() { readlinkFn = oldReadlink }()
 
 	os.Setenv("TZ", "")
+	readlinkFn = func(name string) (string, error) {
+		return "", fmt.Errorf("not a symlink")
+	}
+
 	got := getLocalTimeZoneName()
 	// Should return UTC-based offset (or UTC if offset is 0)
 	assert.NotEmpty(t, got)
@@ -1445,22 +1452,20 @@ func TestGetLocalTimeZoneName_EmptyTZ_NoEtcLocaltime(t *testing.T) {
 }
 
 func TestGetLocalTimeZoneName_NonZeroOffsetMinutes(t *testing.T) {
-	// On Windows, set TZ to a timezone with non-zero offset minutes (e.g., India UTC+5:30)
-	// But we can't use TZ for this since TZ is checked first.
-	// The zoneMinutes != 0 path is tested when the local timezone has minutes.
-	// This path is hard to test without mocking time.Now().Zone().
-	// We verify the format output structure by checking the function returns
-	// something reasonable.
+	// Stub readlinkFn and TZ to isolate the offset fallback path.
 	originalTZ := os.Getenv("TZ")
 	defer os.Setenv("TZ", originalTZ)
+	oldReadlink := readlinkFn
+	defer func() { readlinkFn = oldReadlink }()
 
 	os.Setenv("TZ", "")
-	got := getLocalTimeZoneName()
-	// Verify it's a valid format
-	if strings.HasPrefix(got, "UTC") {
-		// Either "UTC+8" or "UTC+5:30" format
-		assert.NotEmpty(t, got)
+	readlinkFn = func(name string) (string, error) {
+		return "", fmt.Errorf("not a symlink")
 	}
+
+	got := getLocalTimeZoneName()
+	// Verify it's a valid UTC-based format: "UTC", "UTC+8", "UTC+5:30", etc.
+	assert.True(t, strings.HasPrefix(got, "UTC"), "expected UTC-based name, got %q", got)
 }
 
 // ---------------------------------------------------------------------------

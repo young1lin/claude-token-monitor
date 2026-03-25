@@ -1,6 +1,8 @@
 package content
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,12 +85,12 @@ func TestGetProjectName(t *testing.T) {
 		{
 			name:     "Linux root",
 			cwd:      "/",
-			expected: "\\",
+			expected: filepath.Base("/"), // "/" on Linux, "\" on Windows
 		},
 		{
 			name:     "Windows root",
 			cwd:      "C:\\",
-			expected: "\\",
+			expected: filepath.Base(strings.ReplaceAll("C:\\", "\\", "/")), // "C:" on Linux, "\" on Windows
 		},
 		{
 			name:     "Single component",

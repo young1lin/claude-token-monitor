@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -519,7 +518,9 @@ func GetProjectName(cwd string, projectDir string) string {
 		dir = projectDir
 	}
 
-	parts := strings.Split(filepath.ToSlash(dir), "/")
+	// Normalize backslashes manually — filepath.ToSlash only replaces
+	// os.PathSeparator, which is '/' on Linux (no-op for '\').
+	parts := strings.Split(strings.ReplaceAll(dir, "\\", "/"), "/")
 	name := parts[len(parts)-1]
 	if len(name) > 20 {
 		return name[:17] + ".."
