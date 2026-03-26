@@ -110,7 +110,9 @@ chmod +x "$HOME/.claude/statusline"
 
 ## Step 3: Configure settings.json
 
-**IMPORTANT**: Use forward slashes `/` for paths (works on all platforms including Windows).
+**IMPORTANT**: Skip this step if updating — only configure on first install.
+
+Use forward slashes `/` for paths (works on all platforms including Windows).
 
 Read the existing `~/.claude/settings.json` and merge the statusLine configuration.
 
@@ -132,13 +134,12 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 {
   "statusLine": {
     "type": "command",
-    "command": "C:/Users/<username>/.claude/statusline.exe",
-    "env": {
-      "STATUSLINE_SINGLELINE": "1"
-    }
+    "command": "C:/Users/<username>/.claude/statusline.exe"
   }
 }
 ```
+
+> **Note**: `STATUSLINE_SINGLELINE=1` is the default behavior, no env override needed.
 
 **Windows path example:**
 ```json
