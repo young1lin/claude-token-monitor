@@ -21,7 +21,7 @@ func DefaultLayout() *Layout {
 			// Row 1
 			{ContentType: "git", Position: Position{Row: 1, Col: 0}, Optional: false},
 			{ContentType: "memory-files", Position: Position{Row: 1, Col: 1}, Optional: true},
-			{ContentType: "skills", Position: Position{Row: 1, Col: 2}, Optional: true},
+			{ContentType: "session-total", Position: Position{Row: 1, Col: 2}, Optional: true},
 
 			{ContentType: "time-quota", Position: Position{Row: 2, Col: 0}, Optional: false},
 			{ContentType: "agent", Position: Position{Row: 2, Col: 1}, Optional: true},

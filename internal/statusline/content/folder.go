@@ -24,6 +24,14 @@ type StatusLineInput struct {
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"current_usage"`
 	} `json:"context_window"`
+	Cost struct {
+		TotalCostUSD       float64 `json:"total_cost_usd"`
+		TotalDurationMs    int     `json:"total_duration_ms"`
+		TotalAPIDurationMs int     `json:"total_api_duration_ms"`
+		TotalLinesAdded    int     `json:"total_lines_added"`
+		TotalLinesRemoved  int     `json:"total_lines_removed"`
+	} `json:"cost"`
+	SessionID      string `json:"session_id"`
 	TranscriptPath string `json:"transcript_path"`
 	Cwd            string `json:"cwd"`
 	Workspace      struct {

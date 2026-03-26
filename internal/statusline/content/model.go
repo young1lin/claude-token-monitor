@@ -122,3 +122,32 @@ func formatNumber(n int) string {
 		return fmt.Sprintf("%d", n)
 	}
 }
+
+// SessionTotalCollector collects session total cost and token usage
+type SessionTotalCollector struct {
+	*BaseCollector
+}
+
+// NewSessionTotalCollector creates a new session total collector
+func NewSessionTotalCollector() *SessionTotalCollector {
+	return &SessionTotalCollector{
+		BaseCollector: NewBaseCollector(ContentSessionTotal, 5*time.Second, true),
+	}
+}
+
+// Collect returns session total cost and token usage
+func (c *SessionTotalCollector) Collect(input interface{}, summary interface{}) (string, error) {
+	statusInput, ok := input.(*StatusLineInput)
+	if !ok {
+		return "", fmt.Errorf("invalid input type")
+	}
+	totalIn := statusInput.ContextWindow.TotalInputTokens
+	totalOut := statusInput.ContextWindow.TotalOutputTokens
+	cost := statusInput.Cost.TotalCostUSD
+
+	if totalIn == 0 && totalOut == 0 && cost == 0 {
+		return "", nil
+	}
+
+	return fmt.Sprintf("\U0001f4b0 $%.2f \u00b7 I:%s O:%s", cost, formatNumber(totalIn), formatNumber(totalOut)), nil
+}

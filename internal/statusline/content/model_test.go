@@ -244,3 +244,93 @@ func makeStatusInput(inputTokens, cacheTokens, outputTokens, contextWindowSize i
 	input.ContextWindow.ContextWindowSize = contextWindowSize
 	return input
 }
+
+func TestSessionTotalCollector_Collect(t *testing.T) {
+	collector := NewSessionTotalCollector()
+
+	tests := []struct {
+		name        string
+		totalIn     int
+		totalOut    int
+		costUSD     float64
+		want        string
+		wantEmpty   bool
+	}{
+		{
+			name:     "typical session",
+			totalIn:  587879,
+			totalOut: 60025,
+			costUSD:  7.23,
+			want:     "\U0001f4b0 $7.23 \u00b7 I:587.9K O:60.0K",
+		},
+		{
+			name:     "million tokens",
+			totalIn:  1200000,
+			totalOut: 150000,
+			costUSD:  15.50,
+			want:     "\U0001f4b0 $15.50 \u00b7 I:1.2M O:150.0K",
+		},
+		{
+			name:     "small session",
+			totalIn:  500,
+			totalOut: 100,
+			costUSD:  0.01,
+			want:     "\U0001f4b0 $0.01 \u00b7 I:500 O:100",
+		},
+		{
+			name:     "zero cost with tokens",
+			totalIn:  1000,
+			totalOut: 200,
+			costUSD:  0,
+			want:     "\U0001f4b0 $0.00 \u00b7 I:1.0K O:200",
+		},
+		{
+			name:      "all zero returns empty",
+			totalIn:   0,
+			totalOut:  0,
+			costUSD:   0,
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			input := &StatusLineInput{}
+			input.ContextWindow.TotalInputTokens = tt.totalIn
+			input.ContextWindow.TotalOutputTokens = tt.totalOut
+			input.Cost.TotalCostUSD = tt.costUSD
+
+			// Act
+			got, err := collector.Collect(input, nil)
+
+			// Assert
+			require.NoError(t, err)
+			if tt.wantEmpty {
+				assert.Empty(t, got)
+			} else {
+				assert.Equal(t, tt.want, got)
+			}
+		})
+	}
+}
+
+func TestSessionTotalCollector_InvalidInput(t *testing.T) {
+	// Arrange
+	collector := NewSessionTotalCollector()
+
+	// Act
+	_, err := collector.Collect("invalid", nil)
+
+	// Assert
+	assert.Error(t, err)
+}
+
+func TestSessionTotalCollector_Properties(t *testing.T) {
+	// Arrange
+	collector := NewSessionTotalCollector()
+
+	// Assert
+	assert.Equal(t, ContentSessionTotal, collector.Type())
+	assert.True(t, collector.Optional())
+}

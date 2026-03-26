@@ -289,6 +289,7 @@ func registerAllCollectors(mgr *content.Manager) {
 		content.NewGitRemoteCollector(),
 		content.NewMemoryFilesCollector(),
 		content.NewSkillsCollector(),
+		content.NewSessionTotalCollector(),
 		content.NewAgentCollector(),
 		content.NewTodoCollector(),
 		content.NewToolsCollector(),

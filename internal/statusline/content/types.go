@@ -28,6 +28,7 @@ const (
 	ContentQuota            ContentType = "quota"
 	ContentToolStatusDetail ContentType = "tool-status-detail"
 	ContentParentMemory     ContentType = "parent-memory"
+	ContentSessionTotal     ContentType = "session-total"
 )
 
 // Content represents a content fragment
