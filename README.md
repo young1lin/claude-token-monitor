@@ -19,6 +19,7 @@ Claude Code 实时 Token 使用状态栏插件。
 ```bash
 /plugin marketplace add young1lin/claude-token-monitor
 /plugin install claude-token-monitor@claude-token-monitor
+/reload-plugins
 /claude-token-monitor:setup
 ```
 
