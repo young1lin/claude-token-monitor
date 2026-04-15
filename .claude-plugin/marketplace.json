@@ -34,7 +34,7 @@
       "keywords": ["telemetry", "opentelemetry", "otlp", "token-usage", "cost", "dashboard"],
       "source": {
         "source": "url",
-        "repo": "https://github.com/young1lin/cc-otel.git",
+        "url": "https://github.com/young1lin/cc-otel.git",
         "ref": "v0.1.0-preview.2"
       }
     }
