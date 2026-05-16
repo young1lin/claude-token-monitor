@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,11 +17,32 @@ type Config struct {
 	Format  FormatConfig  `yaml:"format"`
 	Content ContentConfig `yaml:"content"`
 	Cache   CacheConfig   `yaml:"cache"`
+	Network NetworkConfig `yaml:"network"`
 }
 
-// CacheConfig controls caching behavior
+// NetworkConfig controls outbound network behavior.
+// All fields default to "no proxy"; only the api.anthropic.com OAuth-usage call
+// is affected — never general HTTP traffic from other tools.
+type NetworkConfig struct {
+	// ClaudeAPIProxy is the proxy URL applied ONLY to requests targeting
+	// api.anthropic.com. Empty (default) → direct connection, no proxy.
+	// Example: "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080".
+	//
+	// This YAML value is the lowest-precedence source — see
+	// (*Config).ResolveClaudeAPIProxy for the full chain
+	// (--proxy flag > STATUSLINE_CLAUDE_PROXY env > this YAML field).
+	ClaudeAPIProxy string `yaml:"claudeAPIProxy"`
+}
+
+// CacheConfig controls caching behavior.
+//
+// UsageTTLSeconds is the time-to-live, in seconds, for the OAuth-usage cache
+// (~/.claude/.usage-cache.json). Within the TTL window the statusline serves
+// cached data and skips the api.anthropic.com HTTP call, so a larger value
+// means fewer requests. Failure-path and 429 backoff timings are deliberately
+// not configurable.
 type CacheConfig struct {
-	UsageTTLSeconds int `yaml:"usageTTLSeconds"` // Usage API cache TTL (default: 30)
+	UsageTTLSeconds int `yaml:"usageTTLSeconds"` // OAuth-usage cache TTL (default: 60)
 }
 
 // DisplayConfig controls what content is displayed
@@ -50,23 +72,33 @@ type ComposerConfig struct {
 	Format string   `yaml:"format"` // Go template format
 }
 
+// configFileNames lists accepted config file names in priority order.
+// Both .yml and .yaml are first-class — .yml is checked first so that users
+// who prefer the shorter extension hit a fast path.
+var configFileNames = []string{"statusline.yml", "statusline.yaml"}
+
 // Load loads configuration from file with priority:
-// 1. Project-level: .claude/statusline.yaml
-// 2. Global: ~/.claude/statusline.yaml
-// 3. Default: built-in defaults
+//  1. Project-level: .claude/statusline.yml then .claude/statusline.yaml
+//  2. Global:        ~/.claude/statusline.yml then ~/.claude/statusline.yaml
+//  3. Default:       built-in defaults
+//
+// The first existing regular file wins; subsequent candidates are skipped.
 func Load(projectDir string) (*Config, error) {
-	// Try project-level config first
-	projectConfig := filepath.Join(projectDir, ".claude", "statusline.yaml")
-	if info, err := os.Stat(projectConfig); err == nil && !info.IsDir() {
-		return loadFile(projectConfig)
+	// Try project-level configs first
+	for _, name := range configFileNames {
+		p := filepath.Join(projectDir, ".claude", name)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return loadFile(p)
+		}
 	}
 
-	// Try global config
-	home, err := os.UserHomeDir()
-	if err == nil {
-		globalConfig := filepath.Join(home, ".claude", "statusline.yaml")
-		if info, err := os.Stat(globalConfig); err == nil && !info.IsDir() {
-			return loadFile(globalConfig)
+	// Then try global configs
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, name := range configFileNames {
+			p := filepath.Join(home, ".claude", name)
+			if info, err := os.Stat(p); err == nil && !info.IsDir() {
+				return loadFile(p)
+			}
 		}
 	}
 
@@ -126,9 +158,31 @@ func DefaultConfig() *Config {
 			Use:       nil, // No overrides
 		},
 		Cache: CacheConfig{
-			UsageTTLSeconds: 30, // Default 30 seconds
+			UsageTTLSeconds: 60, // Default 60s — one OAuth-usage request per minute
+		},
+		Network: NetworkConfig{
+			ClaudeAPIProxy: "", // Default: no proxy
 		},
 	}
+}
+
+// ResolveClaudeAPIProxy returns the effective proxy URL for api.anthropic.com
+// requests after applying the configured precedence:
+//
+//  1. cliFlag                        (highest — e.g. --proxy=…)
+//  2. STATUSLINE_CLAUDE_PROXY env    (middle)
+//  3. network.claudeAPIProxy YAML    (lowest)
+//
+// Returns "" when nothing is configured. All inputs are whitespace-trimmed,
+// so a blank/whitespace value at one layer falls through to the next.
+func (c *Config) ResolveClaudeAPIProxy(cliFlag string) string {
+	if cli := strings.TrimSpace(cliFlag); cli != "" {
+		return cli
+	}
+	if env := strings.TrimSpace(os.Getenv("STATUSLINE_CLAUDE_PROXY")); env != "" {
+		return env
+	}
+	return strings.TrimSpace(c.Network.ClaudeAPIProxy)
 }
 
 // ShouldShow returns true if the given content type should be displayed
@@ -196,10 +250,12 @@ func (c *Config) HasCustomComposers() bool {
 	return len(c.Content.Composers) > 0
 }
 
-// GetUsageCacheTTL returns the usage API cache TTL duration
+// GetUsageCacheTTL returns the OAuth-usage cache TTL duration.
+// Non-positive YAML values fall back to the 60s default so a misconfigured
+// file can never accidentally hammer api.anthropic.com on every refresh.
 func (c *Config) GetUsageCacheTTL() time.Duration {
 	if c.Cache.UsageTTLSeconds <= 0 {
-		return 30 * time.Second
+		return 60 * time.Second
 	}
 	return time.Duration(c.Cache.UsageTTLSeconds) * time.Second
 }

@@ -35,31 +35,6 @@ func TestGetPlanName(t *testing.T) {
 	}
 }
 
-// Table-driven test for formatResetTime
-func TestFormatResetTime(t *testing.T) {
-	tests := []struct {
-		name        string
-		resetAt     time.Time
-		shouldEmpty bool
-	}{
-		{"Zero time", time.Time{}, true},
-		{"Valid time", time.Date(2024, 1, 15, 14, 30, 0, 0, time.UTC), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := formatResetTime(tt.resetAt)
-			if tt.shouldEmpty {
-				assert.Empty(t, result)
-			} else {
-				assert.NotEmpty(t, result)
-				// Format is "HH:MM (timezone)"
-				assert.Contains(t, result, ":")
-			}
-		})
-	}
-}
-
 // Table-driven test for getRateLimitedTTL
 func TestGetRateLimitedTTL(t *testing.T) {
 	tests := []struct {

@@ -1,5 +1,7 @@
 # StatusLine Plugin - Example Configuration
-# Copy this file to .claude/statusline.yaml or ~/.claude/statusline.yaml
+# Copy this file to .claude/statusline.yml (preferred) or .claude/statusline.yaml
+# (or the ~/.claude/ equivalents for global scope). Both extensions are
+# accepted; .yml is checked first.
 
 # Display Configuration
 display:
@@ -59,3 +61,21 @@ content:
     # token: token-simple
     # git: my-git
     # time: time-only
+
+# Network Configuration
+# Default: no proxy, direct connection to api.anthropic.com.
+# Only the OAuth-usage call is affected — other HTTP traffic is never proxied.
+# Precedence: --proxy CLI flag > STATUSLINE_CLAUDE_PROXY env > this value.
+network:
+  # Uncomment and set when behind a corporate firewall / region restriction.
+  # claudeAPIProxy: "http://127.0.0.1:7890"
+  claudeAPIProxy: ""
+
+# Cache Configuration
+cache:
+  # Seconds to cache a successful OAuth-usage response. Larger = fewer
+  # requests, smaller = fresher data. Default 60s (~1 request/minute).
+  # Non-positive values fall back to 60s (you cannot set a zero TTL).
+  # Failure caching (15s) and 429 exponential backoff (60→120→240s, cap 5min)
+  # are intentionally not configurable.
+  usageTTLSeconds: 60

@@ -158,7 +158,99 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 2. Use forward slashes `/` (not `\\` or `\\\\`)
 3. Avoid `%USERPROFILE%` - use actual path or `$HOME`
 
-## Step 4: Verify Installation
+## Step 4: Optional — Configure Proxy & Cache (interactive)
+
+**Default behavior: NO proxy. Direct connection to `api.anthropic.com`,
+60-second cache TTL.** Skip this step entirely if that's fine.
+
+When this step IS needed, use `AskUserQuestion` to collect every parameter
+from the user — do not invent values. Both HTTP/HTTPS and SOCKS5 are
+supported, with optional username/password.
+
+### 4.1 — Enable proxy? (`AskUserQuestion`)
+
+- Question: "Configure a proxy for Claude API usage requests? (Only
+  api.anthropic.com — other tools are never proxied.)"
+- header: "Proxy"
+- options:
+  - "No, direct connection (default)"
+  - "Yes, configure proxy"
+
+If "No" → leave proxy empty, jump to 4.6 (cache TTL only).
+
+### 4.2 — Protocol (`AskUserQuestion`)
+
+- Question: "Which proxy protocol does the upstream support?"
+- header: "Protocol"
+- options:
+  - `http` (Clash/mihomo/V2Ray default)
+  - `https` (TLS-wrapped proxy — rare)
+  - `socks5` (SOCKS5)
+
+Record as `<proto>`.
+
+### 4.3 — Address (`AskUserQuestion`)
+
+- Question: "Proxy host:port? Pick a common default or Other to type a
+  custom address."
+- header: "Address"
+- options:
+  - `127.0.0.1:7890` (Clash / mihomo default)
+  - `127.0.0.1:1080` (SOCKS5 conventional)
+  - `127.0.0.1:8080` (generic HTTP proxy)
+  - (user can pick Other to type any host:port)
+
+Record as `<addr>`.
+
+### 4.4 — Auth required? (`AskUserQuestion`)
+
+- Question: "Does the proxy require a username and password?"
+- header: "Auth"
+- options: `[ "No (default)", "Yes" ]`
+
+### 4.5 — Credentials (only if 4.4 = "Yes")
+
+Two separate `AskUserQuestion` calls — instruct the user to pick **Other**
+each time to type the actual value:
+
+1. Username — header "Username"
+2. Password — header "Password"
+
+**URL-encode** before embedding (special characters like `@`, `:`, `/`, `#`,
+space must be percent-encoded). Quick helper:
+
+```bash
+python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" 'p@ss:word'
+```
+
+### 4.6 — Assemble URL + write `.claude/statusline.yml`
+
+| Auth | URL |
+|------|-----|
+| No   | `<proto>://<addr>` |
+| Yes  | `<proto>://<enc-user>:<enc-pass>@<addr>` |
+
+Then write the file (project-scoped is git-ignored, credentials stay local):
+
+```yaml
+network:
+  # Examples:
+  #   http://127.0.0.1:7890
+  #   http://alice:p%40ss@127.0.0.1:7890       (URL-encoded credentials)
+  #   socks5://bob:secret@127.0.0.1:1080
+  claudeAPIProxy: "<final URL or empty>"
+
+cache:
+  usageTTLSeconds: 60   # default 60s; non-positive → fallback to 60s
+```
+
+### Precedence and non-configurable items
+
+- Precedence: `--proxy=<url>` CLI flag > `STATUSLINE_CLAUDE_PROXY` env > YAML
+- `HTTP_PROXY` / `HTTPS_PROXY` are intentionally ignored (no leakage)
+- Failure cache (15 s) and 429 backoff (60 → 120 → 240, cap 5 min) are fixed
+
+## Step 5: Verify Installation
 
 Ask the user to check if the statusline appears in Claude Code.
 

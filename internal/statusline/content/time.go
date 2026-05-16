@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 // testOverrides holds values that can be overridden during testing.
@@ -24,6 +28,82 @@ var (
 	timeZoneFn             = func() (string, int) { return time.Now().Zone() } // Override in tests
 	getHomeDirFn           = getEffectiveHomeDir                               // Override in tests for error injection
 )
+
+// claudeAPIProxy holds the proxy URL applied only to api.anthropic.com requests.
+// Empty (default) → no proxy. Precedence resolution (CLI > env > YAML) happens
+// in (*config.Config).ResolveClaudeAPIProxy and is passed in via SetClaudeAPIProxy.
+var (
+	claudeAPIProxy   string
+	claudeAPIProxyMu sync.RWMutex
+)
+
+// SetClaudeAPIProxy stores the already-resolved proxy URL used for outbound
+// requests to api.anthropic.com. An empty string disables the proxy.
+// Thread-safe. Callers should pass the value from
+// (*config.Config).ResolveClaudeAPIProxy so CLI / env / YAML precedence stays
+// in one place.
+func SetClaudeAPIProxy(proxyURL string) {
+	claudeAPIProxyMu.Lock()
+	defer claudeAPIProxyMu.Unlock()
+	claudeAPIProxy = strings.TrimSpace(proxyURL)
+}
+
+// getClaudeAPIProxy returns the stored proxy URL for Claude API requests.
+// Returns an empty string when no proxy is configured.
+func getClaudeAPIProxy() string {
+	claudeAPIProxyMu.RLock()
+	defer claudeAPIProxyMu.RUnlock()
+	return claudeAPIProxy
+}
+
+// newClaudeHTTPClient returns an HTTP client for Claude OAuth API requests.
+// When a proxy is configured it routes through that proxy; otherwise it uses
+// a direct connection. It deliberately does NOT honor HTTP_PROXY/HTTPS_PROXY
+// so unrelated environment proxies cannot leak into Claude API traffic.
+//
+// Supported schemes:
+//   - http://  / https:// — standard HTTP CONNECT proxy. Basic-auth credentials
+//     embedded in the URL (user:pass@host) are sent automatically by
+//     net/http via the Proxy-Authorization header.
+//   - socks5:// / socks5h:// — SOCKS5 proxy via golang.org/x/net/proxy.
+//     SOCKS5 username/password auth is read from the URL by proxy.FromURL.
+//
+// Unknown or unparseable schemes silently fall through to a direct connection
+// rather than failing — a typo in the YAML must never break the statusline.
+func newClaudeHTTPClient(timeout time.Duration) *http.Client {
+	transport := &http.Transport{Proxy: nil}
+	if raw := getClaudeAPIProxy(); raw != "" {
+		applyProxyToTransport(transport, raw)
+	}
+	return &http.Client{Timeout: timeout, Transport: transport}
+}
+
+// applyProxyToTransport mutates transport so requests route through the proxy
+// described by rawURL. Returns silently on any parse / scheme error so that a
+// malformed YAML value never escalates into a startup failure.
+func applyProxyToTransport(transport *http.Transport, rawURL string) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" {
+		return
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		// http.ProxyURL takes care of Basic-auth credentials in user info.
+		transport.Proxy = http.ProxyURL(parsed)
+	case "socks5", "socks5h":
+		// proxy.FromURL reads SOCKS5 user/password from the URL's user info.
+		dialer, err := proxy.FromURL(parsed, proxy.Direct)
+		if err != nil {
+			return
+		}
+		// Only ContextDialer integrates cleanly with http.Transport — every
+		// dialer in x/net/proxy implements it, but guard anyway for forward
+		// compatibility.
+		if cd, ok := dialer.(proxy.ContextDialer); ok {
+			transport.DialContext = cd.DialContext
+		}
+	}
+}
 
 // syncFile opens a file, calls Sync(), and closes it. Returns sync error if any.
 func syncFile(path string) error {
@@ -43,17 +123,48 @@ func getEffectiveHomeDir() (string, error) {
 	return os.UserHomeDir()
 }
 
-// Cross-process cache constants (aligned with claude-hud)
+// Cross-process cache constants (aligned with claude-hud).
+// The success-path TTL is variable-not-const because YAML/CLI config can
+// override it at startup — see usageCacheTTL below.
 const (
-	usageCacheFile         = ".usage-cache.json"
-	refreshTimeout         = 10 * time.Second // Refresh timeout, prevents stale locks from crashes
-	refreshCoordDelay      = 50 * time.Millisecond
-	cacheTTLSeconds        = 60  // Success cache TTL (claude-hud default)
-	failureCacheTTLSeconds = 15  // Failure cache TTL
-	rateLimitBaseSeconds   = 60  // 429 base backoff
-	rateLimitMaxSeconds    = 300 // 429 max backoff (5 min)
-	httpTimeoutSeconds     = 15  // HTTP client timeout for API calls
+	usageCacheFile           = ".usage-cache.json"
+	refreshTimeout           = 10 * time.Second // Refresh timeout, prevents stale locks from crashes
+	refreshCoordDelay        = 50 * time.Millisecond
+	defaultUsageCacheTTLSecs = 60  // Default success cache TTL when nothing is configured
+	failureCacheTTLSeconds   = 15  // Failure cache TTL
+	rateLimitBaseSeconds     = 60  // 429 base backoff
+	rateLimitMaxSeconds      = 300 // 429 max backoff (5 min)
+	httpTimeoutSeconds       = 15  // HTTP client timeout for API calls
 )
+
+// usageCacheTTL is the effective success-path TTL for the OAuth-usage cache.
+// Defaults to defaultUsageCacheTTLSecs and is replaced via SetUsageCacheTTL
+// from main once the YAML config is loaded.
+// Failure / 429 backoff timings are intentionally NOT configurable — they
+// protect us from runaway requests when the upstream is unhealthy.
+var (
+	usageCacheTTL   = time.Duration(defaultUsageCacheTTLSecs) * time.Second
+	usageCacheTTLMu sync.RWMutex
+)
+
+// SetUsageCacheTTL configures the success-path cache TTL for the OAuth-usage
+// API. Non-positive values are ignored — they fall back to the built-in
+// default (60s). Thread-safe.
+func SetUsageCacheTTL(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	usageCacheTTLMu.Lock()
+	defer usageCacheTTLMu.Unlock()
+	usageCacheTTL = d
+}
+
+// getUsageCacheTTL returns the currently configured success cache TTL.
+func getUsageCacheTTL() time.Duration {
+	usageCacheTTLMu.RLock()
+	defer usageCacheTTLMu.RUnlock()
+	return usageCacheTTL
+}
 
 // isUsingCustomApiEndpoint checks if user is using a custom API endpoint
 // When using custom providers, the OAuth usage API is not applicable.
@@ -178,7 +289,14 @@ func (c *QuotaCollector) Collect(input interface{}, summary interface{}) (string
 	return getSubscriptionQuota(statusInput), nil
 }
 
-// getSubscriptionQuota returns the subscription quota usage percentage with reset time
+// getSubscriptionQuota returns the subscription quota usage percentage with
+// each window's reset time inlined alongside its percentage.
+//
+// Format examples:
+//
+//	📊 22% 5h (↻ 05:20) · 2% 7d (↻ 03-24) (UTC+8)   // both reset times known
+//	📊 22% 5h (↻ 05:20) · 2% 7d                     // only 5h reset known
+//	📊 0% 5h · 0% 7d                                // freshly reset, no reset metadata yet
 func getSubscriptionQuota(input *StatusLineInput) string {
 	var usage *UsageData
 	if getSubscriptionUsageFn != nil {
@@ -191,48 +309,24 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 		return ""
 	}
 
-	hasFive := usage.FiveHour > 0
-	hasSeven := usage.SevenDay > 0
-
-	if !hasFive && !hasSeven {
-		return ""
+	fiveHourStr := fmt.Sprintf("%.0f%% 5h", usage.FiveHour)
+	if !usage.FiveHourResetAt.IsZero() {
+		fiveHourStr = fmt.Sprintf("%.0f%% 5h (↻ %s)", usage.FiveHour, usage.FiveHourResetAt.Local().Format("15:04"))
 	}
 
-	// Both limits available: show 5h (primary) + 7d (secondary), reset refers to 5h
-	if hasFive && hasSeven {
-		resetTime := formatResetTime(usage.FiveHourResetAt)
-		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% 5h · %.0f%% 7d · Reset %s", usage.FiveHour, usage.SevenDay, resetTime)
-		}
-		return fmt.Sprintf("📊 %.0f%% 5h · %.0f%% 7d", usage.FiveHour, usage.SevenDay)
+	sevenDayStr := fmt.Sprintf("%.0f%% 7d", usage.SevenDay)
+	if !usage.SevenDayResetAt.IsZero() {
+		sevenDayStr = fmt.Sprintf("%.0f%% 7d (↻ %s)", usage.SevenDay, usage.SevenDayResetAt.Local().Format("01-02"))
 	}
 
-	// Only 5-hour limit
-	if hasFive {
-		resetTime := formatResetTime(usage.FiveHourResetAt)
-		if resetTime != "" {
-			return fmt.Sprintf("📊 %.0f%% · Reset %s", usage.FiveHour, resetTime)
-		}
-		return fmt.Sprintf("📊 %.0f%%", usage.FiveHour)
-	}
+	result := fmt.Sprintf("📊 %s · %s", fiveHourStr, sevenDayStr)
 
-	// Only 7-day limit
-	resetTime := formatResetTime(usage.SevenDayResetAt)
-	if resetTime != "" {
-		return fmt.Sprintf("📊 %.0f%% 7d · Reset %s", usage.SevenDay, resetTime)
+	// Append the local timezone once when any reset time was shown — keeps
+	// the suffix unambiguous without duplicating it per window.
+	if !usage.FiveHourResetAt.IsZero() || !usage.SevenDayResetAt.IsZero() {
+		result += " (" + getLocalTimeZoneName() + ")"
 	}
-	return fmt.Sprintf("📊 %.0f%% 7d", usage.SevenDay)
-}
-
-// formatResetTime formats the reset time in local timezone with timezone name
-func formatResetTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	local := t.Local()
-	timeStr := local.Format("15:04")
-	zoneName := getLocalTimeZoneName()
-	return fmt.Sprintf("%s (%s)", timeStr, zoneName)
+	return result
 }
 
 // getCachePath returns the cache file path
@@ -340,12 +434,14 @@ func shouldRefreshResult() (bool, *usageCacheData, bool) {
 		}
 	}
 
-	// Determine TTL based on cache state
+	// Determine TTL based on cache state.
+	// Failure TTL stays short (and fixed) so transient errors recover quickly;
+	// success TTL honors the configured value (default 60s).
 	var ttl time.Duration
 	if cache.APIUnavailable || cache.APIError != "" {
 		ttl = time.Duration(failureCacheTTLSeconds) * time.Second
 	} else {
-		ttl = time.Duration(cacheTTLSeconds) * time.Second
+		ttl = getUsageCacheTTL()
 	}
 
 	// Case 2: Cache is still fresh
@@ -477,9 +573,11 @@ func fallbackOrNil(cache *usageCacheData) *UsageData {
 	if cache == nil {
 		return nil
 	}
-	// Return old data even if APIUnavailable - it's better than nothing
-	// Only return nil if we have no data at all
-	if cache.FiveHour == 0 && cache.SevenDay == 0 {
+	// A 0/0 cache from writeRefreshFailedCache (initial failure with no prior
+	// data) carries APIError != "" — that genuinely has nothing to show.
+	// A 0/0 cache with APIError == "" came from a successful refresh that
+	// happened to return 0% usage (e.g. just past a reset), and MUST be shown.
+	if cache.FiveHour == 0 && cache.SevenDay == 0 && cache.APIError != "" {
 		return nil
 	}
 	usage := &UsageData{
@@ -593,7 +691,7 @@ func getSubscriptionUsage() *UsageData {
 // fetchUsageAPI calls the Claude OAuth usage API
 // Returns: usage data, isRateLimited, retryAfterSec, error
 func fetchUsageAPI(accessToken string) (*UsageData, bool, int, error) {
-	client := &http.Client{Timeout: time.Duration(httpTimeoutSeconds) * time.Second}
+	client := newClaudeHTTPClient(time.Duration(httpTimeoutSeconds) * time.Second)
 
 	req, err := http.NewRequest("GET", usageAPIURL, nil)
 	if err != nil {

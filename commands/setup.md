@@ -157,7 +157,130 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 2. Use forward slashes `/` (not `\\` or `\\\\`)
 3. Avoid `%USERPROFILE%` - use actual path or `$HOME`
 
-## Step 4: Verify Installation
+## Step 4: Optional — Configure Proxy & Cache (interactive)
+
+**Default behavior: NO proxy. Direct connection to `api.anthropic.com`, 60-second
+cache TTL.** Skip this step if that's fine — nothing here is required.
+
+When this step IS needed (corporate firewall, region restriction, custom
+gateway), guide the user through configuration using `AskUserQuestion`. Do
+**not** invent values — every parameter must come from the user.
+
+### Step 4.1 — Ask whether to enable the proxy
+
+Use `AskUserQuestion` with one question:
+
+- Question: "Configure a proxy for Claude API usage requests? (Only affects
+  api.anthropic.com — other tools are never proxied.)"
+- header: "Proxy"
+- options: `[ "No, direct connection (default)", "Yes, configure proxy" ]`
+
+If the user picks "No" → leave the YAML proxy field empty and continue to
+Step 4.6 (cache TTL).
+
+### Step 4.2 — Pick the protocol
+
+Only if Step 4.1 returned "Yes". Use `AskUserQuestion`:
+
+- Question: "Which proxy protocol does the upstream support?"
+- header: "Protocol"
+- options:
+  - `http` (most common — Clash, V2Ray default, mihomo)
+  - `https` (proxy itself runs TLS — rare; pick this only if explicitly told)
+  - `socks5` (SOCKS5 — also used by V2Ray, shadowsocks-rust)
+
+Record the choice as `<proto>` (one of `http`, `https`, `socks5`).
+
+### Step 4.3 — Pick host and port
+
+Use `AskUserQuestion` with a few common defaults plus an "Other" path:
+
+- Question: "Proxy host:port? Pick a common default or choose Other to type
+  a custom address."
+- header: "Address"
+- options:
+  - `127.0.0.1:7890` (Clash / mihomo default)
+  - `127.0.0.1:1080` (SOCKS5 conventional port)
+  - `127.0.0.1:8080` (generic HTTP proxy)
+
+The user may select "Other" and type any `host:port`. Record as `<addr>`.
+
+### Step 4.4 — Ask whether the proxy requires auth
+
+Use `AskUserQuestion`:
+
+- Question: "Does the proxy require a username and password?"
+- header: "Auth"
+- options: `[ "No (default)", "Yes" ]`
+
+### Step 4.5 — Collect credentials (only when Step 4.4 is "Yes")
+
+Use **two separate** `AskUserQuestion` calls so the answers are kept clean:
+
+1. Username — provide a placeholder option (e.g. label "Type the username")
+   and instruct the user to pick **Other** to enter their actual username.
+2. Password — same shape, label "Type the password".
+
+**You MUST URL-encode the credentials** before embedding them in the proxy
+URL — `@`, `:`, `/`, `?`, `#`, space, etc. would otherwise corrupt parsing.
+A safe Python one-liner the user can run if uncertain:
+
+```bash
+python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" 'my:pass@word'
+```
+
+### Step 4.6 — Compose the URL and write `.claude/statusline.yml`
+
+Build the final URL:
+
+| Auth | URL form |
+|------|----------|
+| No   | `<proto>://<addr>` |
+| Yes  | `<proto>://<encoded-user>:<encoded-pass>@<addr>` |
+
+Both `http` / `https` and `socks5` are supported by the statusline binary
+(HTTP via `net/http`, SOCKS5 via `golang.org/x/net/proxy`). The user/password
+pair is read directly from the URL's user-info field — no separate fields.
+
+Then create/update `.claude/statusline.yml` (project-scoped) or
+`~/.claude/statusline.yml` (global). **Do not commit the project-scoped file**
+— `.claude/statusline.yml` is git-ignored by default to keep proxy
+credentials per-machine.
+
+Final file (proxy + cache, both optional):
+
+```yaml
+network:
+  # Leave empty / omit for direct connection. Examples:
+  #   http://127.0.0.1:7890
+  #   http://alice:p%40ss@127.0.0.1:7890   (URL-encoded credentials)
+  #   socks5://bob:secret@127.0.0.1:1080
+  claudeAPIProxy: "<final URL or empty>"
+
+cache:
+  # Seconds to cache a successful OAuth-usage response.
+  # Default 60 (~1 req/min). Non-positive falls back to 60.
+  usageTTLSeconds: 60
+```
+
+### Precedence (for advanced users)
+
+The proxy URL is resolved at startup from these three sources, highest first:
+
+1. `--proxy=<url>` CLI flag on the statusline command
+2. `STATUSLINE_CLAUDE_PROXY` environment variable
+3. `network.claudeAPIProxy` in YAML
+
+`HTTP_PROXY` / `HTTPS_PROXY` environment variables are intentionally **not**
+honored — they often leak from unrelated tools and must not silently route
+Claude API traffic.
+
+### Failure / rate-limit behavior (intentionally not configurable)
+
+- Failed request → cached as failure for **15 s** before retry
+- HTTP 429 → exponential backoff **60 → 120 → 240 s**, capped at **5 min**
+
+## Step 5: Verify Installation
 
 Ask the user to check if the statusline appears in Claude Code.
 

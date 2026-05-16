@@ -87,12 +87,20 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 		return
 	}
 
-	// Check for --debug flag
+	// Parse CLI flags. We intentionally avoid the `flag` package here because
+	// the rest of the entrypoint already uses ad-hoc scanning and we want to
+	// stay friendly to unknown future flags rather than aborting on them.
 	debugMode := false
-	for _, arg := range args {
-		if arg == "--debug" {
+	proxyCLI := ""
+	for i, arg := range args {
+		switch {
+		case arg == "--debug":
 			debugMode = true
-			break
+		case strings.HasPrefix(arg, "--proxy="):
+			proxyCLI = strings.TrimPrefix(arg, "--proxy=")
+		case arg == "--proxy" && i+1 < len(args):
+			// Tolerate the space-separated form (`--proxy URL`) too.
+			proxyCLI = args[i+1]
 		}
 	}
 
@@ -199,6 +207,14 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	if err != nil {
 		cfg = config.DefaultConfig()
 	}
+
+	// Apply network + cache config before collectors run — the proxy targeting
+	// api.anthropic.com must be in place before the quota collector issues its
+	// OAuth-usage request, and the cache TTL governs whether that request even
+	// happens this refresh. Precedence: --proxy flag > STATUSLINE_CLAUDE_PROXY
+	// env > network.claudeAPIProxy YAML, all resolved in one place.
+	content.SetClaudeAPIProxy(cfg.ResolveClaudeAPIProxy(proxyCLI))
+	content.SetUsageCacheTTL(cfg.GetUsageCacheTTL())
 
 	// Build content map using composers
 	contentMap := contentMgr.Compose(&input, summary)

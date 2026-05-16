@@ -19,6 +19,11 @@ statusline.debug
 # Local Claude settings only (settings.json is OK to commit)
 .claude/settings.local.json
 
+# User-local statusline config (proxy, cache tuning). Keep the .example.yaml
+# tracked as the template; the actual .yml/.yaml stays per-machine.
+.claude/statusline.yml
+.claude/statusline.yaml
+
 # Go
 go.work
 vendor/

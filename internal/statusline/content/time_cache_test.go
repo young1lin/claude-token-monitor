@@ -60,9 +60,21 @@ func TestFallbackOrNil(t *testing.T) {
 		assert.Nil(t, fallbackOrNil(nil))
 	})
 
-	t.Run("Zero data returns nil", func(t *testing.T) {
-		cache := &usageCacheData{FiveHour: 0, SevenDay: 0}
+	t.Run("Zero data with API error returns nil (failed initial fetch)", func(t *testing.T) {
+		// Arrange: writeRefreshFailedCache with no prior data → both 0 + APIError set.
+		// This represents "never got real data", so we have nothing to show.
+		cache := &usageCacheData{FiveHour: 0, SevenDay: 0, APIError: "network"}
 		assert.Nil(t, fallbackOrNil(cache))
+	})
+
+	t.Run("Zero data after successful fetch returns data (legitimate 0% usage)", func(t *testing.T) {
+		// Arrange: API returned 0/0 (e.g. just past a reset) and we wrote it.
+		// On next cached read, fallbackOrNil must surface this as data, not nil.
+		cache := &usageCacheData{FiveHour: 0, SevenDay: 0}
+		result := fallbackOrNil(cache)
+		require.NotNil(t, result)
+		assert.Equal(t, 0.0, result.FiveHour)
+		assert.Equal(t, 0.0, result.SevenDay)
 	})
 
 	t.Run("Only FiveHour set returns data", func(t *testing.T) {
@@ -92,6 +104,195 @@ func TestFallbackOrNil(t *testing.T) {
 		result := fallbackOrNil(cache)
 		require.NotNil(t, result)
 		assert.True(t, result.APIUnavailable)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// SetUsageCacheTTL / getUsageCacheTTL — YAML-driven cache window
+// ---------------------------------------------------------------------------
+
+func TestUsageCacheTTL_SetterAndGetter(t *testing.T) {
+	// Arrange: snapshot the current TTL so the package's shared state is
+	// restored after the test — other tests rely on the default 60s.
+	original := getUsageCacheTTL()
+	t.Cleanup(func() { SetUsageCacheTTL(original) })
+
+	t.Run("default is 60 seconds", func(t *testing.T) {
+		SetUsageCacheTTL(original) // ensure baseline
+		if got := getUsageCacheTTL(); got != 60*time.Second {
+			t.Errorf("default TTL = %v, want 60s", got)
+		}
+	})
+
+	t.Run("setter applies a custom TTL", func(t *testing.T) {
+		SetUsageCacheTTL(2 * time.Minute)
+		if got := getUsageCacheTTL(); got != 2*time.Minute {
+			t.Errorf("TTL after Set(2m) = %v, want 2m", got)
+		}
+	})
+
+	t.Run("non-positive values are ignored (no zero-TTL hammering)", func(t *testing.T) {
+		SetUsageCacheTTL(3 * time.Minute) // known good baseline
+		SetUsageCacheTTL(0)
+		if got := getUsageCacheTTL(); got != 3*time.Minute {
+			t.Errorf("Set(0) overwrote TTL: got %v, want 3m preserved", got)
+		}
+		SetUsageCacheTTL(-1 * time.Second)
+		if got := getUsageCacheTTL(); got != 3*time.Minute {
+			t.Errorf("Set(negative) overwrote TTL: got %v, want 3m preserved", got)
+		}
+	})
+}
+
+// TestShouldRefreshResult_HonorsConfiguredTTL verifies that a custom TTL set
+// via SetUsageCacheTTL actually drives shouldRefreshResult's decision — i.e.
+// the YAML config is no longer dead state.
+func TestShouldRefreshResult_HonorsConfiguredTTL(t *testing.T) {
+	// Arrange: cache 90 seconds old. At default 60s TTL it would be stale,
+	// at 5-minute TTL it should still be fresh.
+	homeDir := setupTempHomeDir(t)
+	original := getUsageCacheTTL()
+	t.Cleanup(func() { SetUsageCacheTTL(original) })
+
+	c := &usageCacheData{
+		FiveHour:  42.0,
+		FetchedAt: time.Now().Add(-90 * time.Second),
+	}
+	writeTestCacheFile(t, homeDir, c)
+
+	// Act: bump TTL to 5 minutes — the 90s-old cache should now look fresh
+	SetUsageCacheTTL(5 * time.Minute)
+	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+
+	// Assert
+	assert.False(t, shouldRefresh, "configured 5m TTL should keep 90s-old cache fresh")
+	assert.False(t, isBackoff)
+	require.NotNil(t, cache)
+	assert.InDelta(t, 42.0, cache.FiveHour, 0.001)
+}
+
+// ---------------------------------------------------------------------------
+// applyProxyToTransport — HTTP/HTTPS via Proxy field, SOCKS5 via DialContext
+// ---------------------------------------------------------------------------
+
+func TestApplyProxyToTransport(t *testing.T) {
+	tests := []struct {
+		name        string
+		rawURL      string
+		wantProxy   bool // transport.Proxy should be non-nil
+		wantDial    bool // transport.DialContext should be non-nil
+		proxyURLCmp string
+	}{
+		{
+			name:        "http proxy → Proxy field set, DialContext untouched",
+			rawURL:      "http://127.0.0.1:7890",
+			wantProxy:   true,
+			proxyURLCmp: "http://127.0.0.1:7890",
+		},
+		{
+			name:        "https proxy → Proxy field set",
+			rawURL:      "https://proxy.corp:443",
+			wantProxy:   true,
+			proxyURLCmp: "https://proxy.corp:443",
+		},
+		{
+			name:        "http proxy with basic-auth credentials in URL",
+			rawURL:      "http://alice:s3cret@127.0.0.1:7890",
+			wantProxy:   true,
+			proxyURLCmp: "http://alice:s3cret@127.0.0.1:7890",
+		},
+		{
+			name:     "socks5 proxy → DialContext set, Proxy stays nil",
+			rawURL:   "socks5://127.0.0.1:1080",
+			wantDial: true,
+		},
+		{
+			name:     "socks5h scheme also accepted",
+			rawURL:   "socks5h://127.0.0.1:1080",
+			wantDial: true,
+		},
+		{
+			name:     "socks5 with username/password credentials",
+			rawURL:   "socks5://bob:pw@127.0.0.1:1080",
+			wantDial: true,
+		},
+		{
+			name:   "unknown scheme falls through to direct (no proxy applied)",
+			rawURL: "ftp://nope:21",
+			// both wantProxy and wantDial stay false
+		},
+		{
+			name:   "empty host falls through to direct",
+			rawURL: "http://",
+		},
+		{
+			name:   "malformed URL falls through to direct (no panic)",
+			rawURL: "::::not a url::::",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			tr := &http.Transport{}
+
+			// Act
+			applyProxyToTransport(tr, tt.rawURL)
+
+			// Assert: Proxy field
+			if tt.wantProxy {
+				require.NotNil(t, tr.Proxy, "expected transport.Proxy to be set")
+				resolved, err := tr.Proxy(nil)
+				require.NoError(t, err)
+				require.NotNil(t, resolved)
+				assert.Equal(t, tt.proxyURLCmp, resolved.String())
+			} else {
+				assert.Nil(t, tr.Proxy, "transport.Proxy should remain nil")
+			}
+
+			// Assert: DialContext field
+			if tt.wantDial {
+				assert.NotNil(t, tr.DialContext, "expected transport.DialContext to be set for SOCKS5")
+			} else {
+				assert.Nil(t, tr.DialContext, "transport.DialContext should remain nil for non-SOCKS5")
+			}
+		})
+	}
+}
+
+// TestNewClaudeHTTPClient_AppliesConfiguredProxy verifies the public entrypoint
+// pulls from the package-level proxy state.
+func TestNewClaudeHTTPClient_AppliesConfiguredProxy(t *testing.T) {
+	t.Run("no proxy configured → direct (no Proxy / no DialContext)", func(t *testing.T) {
+		SetClaudeAPIProxy("")
+		t.Cleanup(func() { SetClaudeAPIProxy("") })
+
+		client := newClaudeHTTPClient(5 * time.Second)
+		tr, ok := client.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.Nil(t, tr.Proxy)
+		assert.Nil(t, tr.DialContext)
+	})
+
+	t.Run("http proxy configured → Proxy field set", func(t *testing.T) {
+		SetClaudeAPIProxy("http://127.0.0.1:7890")
+		t.Cleanup(func() { SetClaudeAPIProxy("") })
+
+		client := newClaudeHTTPClient(5 * time.Second)
+		tr, ok := client.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, tr.Proxy)
+	})
+
+	t.Run("socks5 proxy configured → DialContext set", func(t *testing.T) {
+		SetClaudeAPIProxy("socks5://127.0.0.1:1080")
+		t.Cleanup(func() { SetClaudeAPIProxy("") })
+
+		client := newClaudeHTTPClient(5 * time.Second)
+		tr, ok := client.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.Nil(t, tr.Proxy)
+		assert.NotNil(t, tr.DialContext)
 	})
 }
 
@@ -844,7 +1045,7 @@ func TestGetSubscriptionQuota_NilUsage(t *testing.T) {
 }
 
 func TestGetSubscriptionQuota_BothZero(t *testing.T) {
-	// Arrange: usage with both fields zero
+	// Arrange: usage with both fields zero — should still show full info
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{FiveHour: 0, SevenDay: 0}
 	})
@@ -852,8 +1053,8 @@ func TestGetSubscriptionQuota_BothZero(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert
-	assert.Empty(t, result)
+	// Assert: shows full info even at 0% usage (no reset times → edge case format)
+	assert.Equal(t, "📊 0% 5h · 0% 7d", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
@@ -866,10 +1067,8 @@ func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert
-	assert.Contains(t, result, "65%")
-	assert.Contains(t, result, "Reset")
-	assert.Contains(t, result, ":")
+	// Assert: 5h shows inline reset (↻HH:MM), 7d shows no reset (zero value)
+	assert.Equal(t, "📊 65% 5h (↻ 23:30) · 0% 7d (UTC+8)", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
@@ -881,13 +1080,12 @@ func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: shows percentage but no "Reset"
-	assert.Contains(t, result, "80%")
-	assert.NotContains(t, result, "Reset")
+	// Assert: always shows both 5h and 7d, no reset time when not provided
+	assert.Equal(t, "📊 80% 5h · 0% 7d", result)
 }
 
 func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
-	// Arrange: five_hour=0, only seven_day has data → label "7d" appended
+	// Arrange: five_hour=0 (no 5h reset), seven_day has data with reset
 	resetAt := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{FiveHour: 0, SevenDay: 42.0, SevenDayResetAt: resetAt}
@@ -896,14 +1094,14 @@ func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert
-	assert.Contains(t, result, "42%")
-	assert.Contains(t, result, "7d")
-	assert.Contains(t, result, "Reset")
+	// Assert: both windows shown; only 7d carries an inline reset arrow
+	assert.Contains(t, result, "0% 5h")
+	assert.Contains(t, result, "42% 7d (↻ ")
+	assert.NotContains(t, result, "0% 5h (↻") // 5h has no reset → no arrow
 }
 
 func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
-	// Arrange: both five_hour and seven_day present
+	// Arrange: both five_hour and seven_day present (only 5h has reset)
 	resetAt := time.Date(2026, 3, 17, 15, 0, 0, 0, time.UTC)
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{
@@ -916,12 +1114,10 @@ func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: both percentages visible with labels
-	assert.Contains(t, result, "67%")
-	assert.Contains(t, result, "5h")
-	assert.Contains(t, result, "45%")
-	assert.Contains(t, result, "7d")
-	assert.Contains(t, result, "Reset")
+	// Assert: both percentages visible; 5h carries the inline reset arrow
+	assert.Contains(t, result, "67% 5h (↻ ")
+	assert.Contains(t, result, "45% 7d")
+	assert.NotContains(t, result, "45% 7d (↻") // 7d has no reset
 }
 
 func TestGetSubscriptionQuota_BothLimits_NoResetTime(t *testing.T) {

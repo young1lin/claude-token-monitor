@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +42,8 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Test default cache config
-	if cfg.Cache.UsageTTLSeconds != 30 {
-		t.Errorf("Default Cache.UsageTTLSeconds should be 30, got %d", cfg.Cache.UsageTTLSeconds)
+	if cfg.Cache.UsageTTLSeconds != 60 {
+		t.Errorf("Default Cache.UsageTTLSeconds should be 60, got %d", cfg.Cache.UsageTTLSeconds)
 	}
 }
 
@@ -392,32 +393,24 @@ func TestGetUsageCacheTTL(t *testing.T) {
 		wantSec int
 	}{
 		{
-			name: "default 30 seconds",
-			cfg: &Config{
-				Cache: CacheConfig{UsageTTLSeconds: 30},
-			},
-			wantSec: 30,
-		},
-		{
-			name: "custom 60 seconds",
-			cfg: &Config{
-				Cache: CacheConfig{UsageTTLSeconds: 60},
-			},
+			name:    "default 60 seconds",
+			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: 60}},
 			wantSec: 60,
 		},
 		{
-			name: "zero defaults to 30 seconds",
-			cfg: &Config{
-				Cache: CacheConfig{UsageTTLSeconds: 0},
-			},
-			wantSec: 30,
+			name:    "custom 120 seconds",
+			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: 120}},
+			wantSec: 120,
 		},
 		{
-			name: "negative defaults to 30 seconds",
-			cfg: &Config{
-				Cache: CacheConfig{UsageTTLSeconds: -1},
-			},
-			wantSec: 30,
+			name:    "zero falls back to 60s default (never zero TTL)",
+			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: 0}},
+			wantSec: 60,
+		},
+		{
+			name:    "negative falls back to 60s default",
+			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: -1}},
+			wantSec: 60,
 		},
 	}
 
@@ -883,4 +876,162 @@ func TestLoad_GlobalConfigIsDir(t *testing.T) {
 	if cfg.Format.ProgressBar != "braille" {
 		t.Errorf("Load() should return default config, got ProgressBar=%q", cfg.Format.ProgressBar)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// ResolveClaudeAPIProxy – CLI > ENV > YAML > "" precedence
+// ---------------------------------------------------------------------------
+
+func TestResolveClaudeAPIProxy(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		envVal  string
+		envSet  bool
+		cliFlag string
+		want    string
+		comment string
+	}{
+		{
+			name:    "all empty returns empty",
+			want:    "",
+			comment: "no proxy configured anywhere → empty (default behavior)",
+		},
+		{
+			name:    "yaml only",
+			yaml:    "http://yaml:7890",
+			want:    "http://yaml:7890",
+			comment: "YAML is the persistent baseline",
+		},
+		{
+			name:    "env beats yaml",
+			yaml:    "http://yaml:7890",
+			envVal:  "http://env:7890",
+			envSet:  true,
+			want:    "http://env:7890",
+			comment: "env overrides YAML for ad-hoc switches",
+		},
+		{
+			name:    "cli beats env beats yaml",
+			yaml:    "http://yaml:7890",
+			envVal:  "http://env:7890",
+			envSet:  true,
+			cliFlag: "http://cli:7890",
+			want:    "http://cli:7890",
+			comment: "CLI is highest precedence",
+		},
+		{
+			name:    "cli beats yaml with no env",
+			yaml:    "http://yaml:7890",
+			cliFlag: "http://cli:7890",
+			want:    "http://cli:7890",
+			comment: "CLI wins even when env is unset",
+		},
+		{
+			name:    "blank cli falls through to env",
+			yaml:    "http://yaml:7890",
+			envVal:  "http://env:7890",
+			envSet:  true,
+			cliFlag: "   ",
+			want:    "http://env:7890",
+			comment: "whitespace CLI value must not mask lower layers",
+		},
+		{
+			name:    "blank env falls through to yaml",
+			yaml:    "http://yaml:7890",
+			envVal:  "   ",
+			envSet:  true,
+			want:    "http://yaml:7890",
+			comment: "whitespace env value must not mask YAML",
+		},
+		{
+			name:    "yaml value is whitespace-trimmed",
+			yaml:    "  http://yaml:7890  ",
+			want:    "http://yaml:7890",
+			comment: "stray whitespace in YAML must not leak into url.Parse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange
+			cfg := DefaultConfig()
+			cfg.Network.ClaudeAPIProxy = tt.yaml
+			if tt.envSet {
+				t.Setenv("STATUSLINE_CLAUDE_PROXY", tt.envVal)
+			} else {
+				os.Unsetenv("STATUSLINE_CLAUDE_PROXY")
+			}
+
+			// Act
+			got := cfg.ResolveClaudeAPIProxy(tt.cliFlag)
+
+			// Assert
+			if got != tt.want {
+				t.Errorf("ResolveClaudeAPIProxy(%q) = %q, want %q (%s)",
+					tt.cliFlag, got, tt.want, tt.comment)
+			}
+		})
+	}
+}
+
+// TestLoad_YAMLAndYMLBothSupported verifies both file extensions resolve and
+// that .yml wins over .yaml at the same scope (project beats global is covered
+// elsewhere).
+func TestLoad_YAMLAndYMLBothSupported(t *testing.T) {
+	body := "network:\n  claudeAPIProxy: \"http://from-%s:7890\"\n"
+
+	t.Run("project statusline.yml loads", func(t *testing.T) {
+		projectDir := t.TempDir()
+		claudeDir := filepath.Join(projectDir, ".claude")
+		requireGoDir(t, os.MkdirAll(claudeDir, 0755))
+		requireGoDir(t, os.WriteFile(filepath.Join(claudeDir, "statusline.yml"),
+			[]byte(fmt.Sprintf(body, "yml")), 0644))
+		os.Unsetenv("STATUSLINE_CLAUDE_PROXY")
+
+		cfg, err := Load(projectDir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.ResolveClaudeAPIProxy(""); got != "http://from-yml:7890" {
+			t.Errorf("got %q, want %q", got, "http://from-yml:7890")
+		}
+	})
+
+	t.Run("project statusline.yaml loads", func(t *testing.T) {
+		projectDir := t.TempDir()
+		claudeDir := filepath.Join(projectDir, ".claude")
+		requireGoDir(t, os.MkdirAll(claudeDir, 0755))
+		requireGoDir(t, os.WriteFile(filepath.Join(claudeDir, "statusline.yaml"),
+			[]byte(fmt.Sprintf(body, "yaml")), 0644))
+		os.Unsetenv("STATUSLINE_CLAUDE_PROXY")
+
+		cfg, err := Load(projectDir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if got := cfg.ResolveClaudeAPIProxy(""); got != "http://from-yaml:7890" {
+			t.Errorf("got %q, want %q", got, "http://from-yaml:7890")
+		}
+	})
+
+	t.Run("yml wins when both exist", func(t *testing.T) {
+		projectDir := t.TempDir()
+		claudeDir := filepath.Join(projectDir, ".claude")
+		requireGoDir(t, os.MkdirAll(claudeDir, 0755))
+		requireGoDir(t, os.WriteFile(filepath.Join(claudeDir, "statusline.yml"),
+			[]byte(fmt.Sprintf(body, "yml")), 0644))
+		requireGoDir(t, os.WriteFile(filepath.Join(claudeDir, "statusline.yaml"),
+			[]byte(fmt.Sprintf(body, "yaml")), 0644))
+		os.Unsetenv("STATUSLINE_CLAUDE_PROXY")
+
+		cfg, err := Load(projectDir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		// .yml is listed first in configFileNames, so it must win.
+		if got := cfg.ResolveClaudeAPIProxy(""); got != "http://from-yml:7890" {
+			t.Errorf("got %q, want %q", got, "http://from-yml:7890")
+		}
+	})
 }
