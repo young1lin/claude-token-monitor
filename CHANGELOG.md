@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-17
+
 ### Changed
 - **Quota line switches to reset countdowns.** Inline reset times now render
   as a countdown to the next reset — the convention shared by every
