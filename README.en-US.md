@@ -15,7 +15,7 @@ Real-time token usage statusline for Claude Code.
 
 ## Configuration
 
-Create `.claude/statusline.yaml` in your project:
+Create `.claude/statusline.yml` in your project (`.yml` is preferred but `.yaml` also works; drop it under `~/.claude/` for a global config):
 
 ```yaml
 display:
@@ -29,6 +29,25 @@ format:
   timeFormat: 24h       # "12h" or "24h"
   compact: false
 
+# Network (v0.2.1+).
+# Applies ONLY to the OAuth-usage request to api.anthropic.com — all other
+# HTTP traffic stays direct. HTTP_PROXY / HTTPS_PROXY env vars are
+# intentionally ignored to avoid leakage from unrelated tools.
+# Precedence: --proxy CLI flag > STATUSLINE_CLAUDE_PROXY env > this field.
+network:
+  # Empty = direct connection. http / https / socks5 (and socks5h) supported.
+  # Username / password go inline in the URL user-info (URL-encoded):
+  #   http://alice:p%40ss@127.0.0.1:7890
+  #   socks5://bob:secret@127.0.0.1:1080
+  claudeAPIProxy: ""
+
+# Cache (v0.2.1+).
+cache:
+  # Seconds to cache a successful OAuth-usage response. Default 60s
+  # (~1 request/min). Failure cache (15s) and 429 backoff
+  # (60→120→240s, capped at 5min) are NOT configurable.
+  usageTTLSeconds: 60
+
 content:
   composers:
     - name: my-token
@@ -37,6 +56,8 @@ content:
   use:
     token: my-token
 ```
+
+> Don't want to write the YAML by hand? Run `/claude-token-monitor:setup` — it ships with an interactive proxy wizard (enable? → protocol → host:port → auth? → username / password) that writes `.claude/statusline.yml` for you. The file is in `.gitignore`, so proxy credentials stay per-machine.
 
 ## Extending
 
@@ -134,11 +155,27 @@ Claude Code sends a single JSON object via stdin:
 
 ### Output (stdout)
 
-The plugin writes one or more lines of plain text (with optional ANSI color codes) to stdout:
+The plugin writes one or more lines of plain text (with optional ANSI color codes) to stdout. The default layout is a 4-row grid covering: project folder, model + token progress bar, Claude Code version, git branch, CLAUDE.md / rules counts, session cost & I/O tokens, current time, subscription quota (5h / 7d reset countdowns), resident memory, and tool-call tally.
 
 ```
-[Claude Sonnet 4.5] | [███░░░░░░░] 75K/200K (37.5%) | 🌿 main +12 ~3 | 🔧 5 tools
+📁 claude-token-monitor | [Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)] | v2.1.143
+🌿 main                 | 📦 2 CLAUDE.md + 2 rules                                | 💰 $0.53 · I:60.6K O:78
+🕐 2026-05-17 13:27     | 📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h                     | 💾 294.0 MB
+✓ Read(9) ✓ Grep(5) ✓ Glob(2) ✖ Bash(1)
 ```
+
+| Field | Meaning |
+|-------|---------|
+| `📁 claude-token-monitor` | Current working directory name |
+| `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | Model + context-token progress bar |
+| `v2.1.143` | Claude Code version |
+| `🌿 main` | Git branch (adds `+new ~modified -deleted` when there are unstaged changes) |
+| `📦 2 CLAUDE.md + 2 rules` | Number of CLAUDE.md / rules files in scope |
+| `💰 $0.53 · I:60.6K O:78` | Session-cumulative cost and input/output tokens |
+| `🕐 2026-05-17 13:27` | Date + time (12h / 24h controlled by `format.timeFormat`) |
+| `📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h` | Subscription quota: 5h / 7d utilization + countdown to next reset (v0.2.2 switched to countdowns; no more absolute time / timezone suffix) |
+| `💾 294.0 MB` | Resident memory of the statusline process |
+| `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | Tool calls this session — `✓` succeeded, `✖` failed |
 
 ### Why Hot Reload Works
 
@@ -160,9 +197,11 @@ Because the plugin is **spawned fresh on every refresh**, recompiling the binary
 ### Design Principles
 
 1. **Stateless** — No persistent process, no IPC, no sockets. Each invocation is independent.
-2. **Fast** — Startup time under 10ms. No network calls. Reads only the tail of transcript files.
+2. **Fast** — Cold start 30–50ms, warm cache 10–20ms; transcript is read tail-only.
 3. **Safe** — A crash in the plugin does not affect Claude Code. It simply shows no status text.
 4. **Cross-platform** — Single Go binary with no external dependencies.
+
+> Note: To render the subscription quota line, the plugin issues one OAuth-usage request to `api.anthropic.com` (default 60s cache, 15s failure cache, 60→120→240s exponential backoff on 429s, capped at 5min). If you're behind a corporate firewall or geo-restricted, configure `network.claudeAPIProxy` above.
 
 ### Debugging with `--debug`
 
@@ -176,11 +215,11 @@ To inspect the exact JSON that Claude Code sends to the plugin, run with the `--
 When `--debug` is enabled, the plugin writes the raw JSON input to a file called `statusline.debug` in the same directory as the binary:
 
 ```
-+-------------------+       +--------------------+       +-------------------+
-|                   | stdin  |                    | file  |                   |
-|    Claude Code    +------->|  statusline.exe    +------>| statusline.debug  |
-|                   | (JSON) |  --debug           |       | (pretty JSON)     |
-+-------------------+       +--------+-----------+       +-------------------+
++-------------------+       +--------------------+       +-------------------------+
+|                   | stdin  |                    | file  |                         |
+|    Claude Code    +------->|  statusline.exe    +------>| statusline.debug        |
+|                   | (JSON) |  --debug           |       | (raw JSON, last 20)     |
++-------------------+       +--------+-----------+       +-------------------------+
                                       |
                                       | stdout (normal output continues)
                                       v
@@ -190,32 +229,13 @@ When `--debug` is enabled, the plugin writes the raw JSON input to a file called
                              +--------------------+
 ```
 
-The debug file contains a timestamped, pretty-printed copy of the input:
+The file keeps the **last 20 entries** (max 40 lines), newest at the top. Each entry is **one timestamp line + one raw JSON line** (no pretty-printing, no separators). Your home directory is replaced with `~` before writing:
 
 ```
-------------------------------------------------------------
-Timestamp: 2026-02-02 17:55:00
-File: C:\path\to\statusline.debug
-------------------------------------------------------------
-
-{
-  "cwd": "C:\\Project",
-  "model": {
-    "display_name": "Claude Sonnet 4.5",
-    "id": "claude-sonnet-4-5-20250514"
-  },
-  "context_window": {
-    "context_window_size": 200000,
-    "current_usage": {
-      "input_tokens": 93,
-      "output_tokens": 68,
-      "cache_read_input_tokens": 103040
-    }
-  },
-  "transcript_path": "...",
-  "workspace": { ... }
-}
-------------------------------------------------------------
+2026-05-17 13:27:01
+{"session_id":"...","transcript_path":"~\\.claude\\projects\\...","cwd":"C:\\Project","model":{"display_name":"Opus 4.7 (1M context)","id":"claude-opus-4-7"},"context_window":{...}}
+2026-05-17 13:26:45
+{"session_id":"...","transcript_path":"~\\.claude\\projects\\...","cwd":"C:\\Project",...}
 ```
 
 This is useful for:

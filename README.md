@@ -25,19 +25,36 @@ Claude Code 实时 Token 使用状态栏插件。
 
 ## 配置
 
-在项目中创建 `.claude/statusline.yaml`：
+在项目中创建 `.claude/statusline.yml`（`.yml` 优先，也兼容 `.yaml`；放到 `~/.claude/` 下即为全局配置）：
 
 ```yaml
 display:
-  singleLine: false  # Single-line mode
-  hide:              # Hide items
+  singleLine: false  # 单行模式
+  hide:              # 隐藏项
     - claude-version
     - memory-files
 
 format:
-  progressBar: braille  # "braille" or "ascii"
-  timeFormat: 24h       # "12h" or "24h"
+  progressBar: braille  # "braille" 或 "ascii"
+  timeFormat: 24h       # "12h" 或 "24h"
   compact: false
+
+# 网络配置（v0.2.1+）
+# 仅作用于对 api.anthropic.com 的 OAuth usage 请求，
+# 其他 HTTP 流量永远不走代理；HTTP_PROXY / HTTPS_PROXY 也会被忽略。
+# 优先级：--proxy CLI 参数 > STATUSLINE_CLAUDE_PROXY 环境变量 > 本字段
+network:
+  # 留空 = 直连。支持 http / https / socks5（socks5h 亦可）。
+  # 用户名/密码直接写在 URL 用户信息部分（需 URL-encode）：
+  #   http://alice:p%40ss@127.0.0.1:7890
+  #   socks5://bob:secret@127.0.0.1:1080
+  claudeAPIProxy: ""
+
+# 缓存配置（v0.2.1+）
+cache:
+  # OAuth usage 响应的缓存秒数。默认 60s ≈ 每分钟一次请求。
+  # 失败缓存 (15s) 与 429 退避 (60→120→240s, 上限 5min) 不可配置。
+  usageTTLSeconds: 60
 
 content:
   composers:
@@ -47,6 +64,8 @@ content:
   use:
     token: my-token
 ```
+
+> 不想手写？运行 `/claude-token-monitor:setup`，里面有交互式代理向导（启用？→ 协议 → host:port → 是否鉴权 → 用户名/密码），会自动写入 `.claude/statusline.yml`。该文件已加入 `.gitignore`，凭据不会进仓库。
 
 ## 扩展开发
 
@@ -144,11 +163,27 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ### Output (stdout)
 
-插件向 stdout 输出一行或多行纯文本（可包含 ANSI 颜色代码）：
+插件向 stdout 输出一行或多行纯文本（可包含 ANSI 颜色代码）。默认是 4 行 grid 布局，单元从左到右、从上到下依次为：项目目录、模型 + token 进度条、Claude Code 版本号、Git 分支、CLAUDE.md / rules 计数、本次会话花费与 I/O token、当前时间、订阅配额（5h / 7d 重置倒计时）、进程常驻内存、工具调用记录。
 
 ```
-[Claude Sonnet 4.5] | [███░░░░░░░] 75K/200K (37.5%) | 🌿 main +12 ~3 | 🔧 5 tools
+📁 claude-token-monitor | [Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)] | v2.1.143
+🌿 main                 | 📦 2 CLAUDE.md + 2 rules                                | 💰 $0.53 · I:60.6K O:78
+🕐 2026-05-17 13:27     | 📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h                     | 💾 294.0 MB
+✓ Read(9) ✓ Grep(5) ✓ Glob(2) ✖ Bash(1)
 ```
+
+| 字段 | 含义 |
+|------|------|
+| `📁 claude-token-monitor` | 当前工作目录名 |
+| `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | 模型 + 上下文 token 进度条 |
+| `v2.1.143` | Claude Code 版本 |
+| `🌿 main` | Git 分支（带 `+新增 ~修改 -删除` 时显示文件改动统计） |
+| `📦 2 CLAUDE.md + 2 rules` | 当前作用域命中的 CLAUDE.md 与规则文件数 |
+| `💰 $0.53 · I:60.6K O:78` | 当前会话累计费用、输入 / 输出 token |
+| `🕐 2026-05-17 13:27` | 当前日期时间（`format.timeFormat` 控制 12/24h） |
+| `📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h` | 订阅配额：5h / 7d 用量百分比 + 距离下次重置的倒计时（v0.2.2 起为倒计时，不再显示绝对时间和时区） |
+| `💾 294.0 MB` | 当前 statusline 进程的常驻内存 |
+| `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | 本会话工具调用次数，`✓` 成功 / `✖` 失败 |
 
 ### Why Hot Reload Works
 
@@ -169,10 +204,12 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ### Design Principles
 
-1. **Stateless** — No persistent process, no IPC, no sockets. Each invocation is independent.
-2. **Fast** — Startup time under 10ms. No network calls. Reads only the tail of transcript files.
-3. **Safe** — A crash in the plugin does not affect Claude Code. It simply shows no status text.
-4. **Cross-platform** — Single Go binary with no external dependencies.
+1. **Stateless** — 没有常驻进程、IPC 或 socket，每次刷新独立运行。
+2. **Fast** — 冷启动 30–50ms，热缓存命中 10–20ms；transcript 只读尾部。
+3. **Safe** — 插件崩溃不会影响 Claude Code，只是不显示状态文本。
+4. **Cross-platform** — 单个 Go 二进制，零外部依赖。
+
+> 注：为了渲染订阅配额行，插件会向 `api.anthropic.com` 发送一次 OAuth usage 请求（默认 60s 缓存，失败 15s 缓存，遇 429 时 60→120→240s 指数退避，封顶 5min）。如果你在企业网或者跨境访问受限，请配置上面的 `network.claudeAPIProxy`。
 
 ### Debugging with `--debug`
 
@@ -189,10 +226,10 @@ Claude Code 通过 stdin 发送 JSON 数据：
 +-------------------+       +--------------------+       +-------------------+
 |                   | stdin  |                    | file  |                   |
 |    Claude Code    +------->|  statusline.exe    +------>| statusline.debug  |
-|                   | (JSON) |  --debug           |       | (pretty JSON)     |
+|                   | (JSON) |  --debug           |       | (raw JSON, 最近 20 条) |
 +-------------------+       +--------+-----------+       +-------------------+
                                       |
-                                      | stdout (normal output continues)
+                                      | stdout (正常输出不受影响)
                                       v
                              +--------------------+
                              | [Model] [===---]   |
@@ -200,32 +237,13 @@ Claude Code 通过 stdin 发送 JSON 数据：
                              +--------------------+
 ```
 
-调试文件包含带时间戳的格式化 JSON：
+调试文件保留最近 **20 条**记录（最多 40 行），新记录从顶部追加。每条 = **1 行时间戳 + 1 行原始 JSON**（不格式化、无分隔符），用户家目录会被替换为 `~` 以避免泄漏个人信息：
 
 ```
-------------------------------------------------------------
-Timestamp: 2026-02-02 17:55:00
-File: C:\path\to\statusline.debug
-------------------------------------------------------------
-
-{
-  "cwd": "C:\\Project",
-  "model": {
-    "display_name": "Claude Sonnet 4.5",
-    "id": "claude-sonnet-4-5-20250514"
-  },
-  "context_window": {
-    "context_window_size": 200000,
-    "current_usage": {
-      "input_tokens": 93,
-      "output_tokens": 68,
-      "cache_read_input_tokens": 103040
-    }
-  },
-  "transcript_path": "...",
-  "workspace": { ... }
-}
-------------------------------------------------------------
+2026-05-17 13:27:01
+{"session_id":"...","transcript_path":"~\\.claude\\projects\\...","cwd":"C:\\Project","model":{"display_name":"Opus 4.7 (1M context)","id":"claude-opus-4-7"},"context_window":{...}}
+2026-05-17 13:26:45
+{"session_id":"...","transcript_path":"~\\.claude\\projects\\...","cwd":"C:\\Project",...}
 ```
 
 用途：
