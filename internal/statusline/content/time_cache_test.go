@@ -860,6 +860,46 @@ func mockSubscriptionUsage(t *testing.T, fn func() *UsageData) {
 	t.Cleanup(func() { getSubscriptionUsageFn = old })
 }
 
+// mockNow pins nowFn for the duration of t, making countdown rendering
+// deterministic regardless of when the test runs. Use this in any test that
+// asserts on a formatResetCountdown output.
+func mockNow(t *testing.T, now time.Time) {
+	t.Helper()
+	old := nowFn
+	nowFn = func() time.Time { return now }
+	t.Cleanup(func() { nowFn = old })
+}
+
+// ---------------------------------------------------------------------------
+// formatResetCountdown – cascade between m / hm / dh / now / <1m
+// ---------------------------------------------------------------------------
+
+func TestFormatResetCountdown(t *testing.T) {
+	tests := []struct {
+		name string
+		d    time.Duration
+		want string
+	}{
+		{"already-reset zero", 0, "now"},
+		{"already-reset negative", -5 * time.Minute, "now"},
+		{"sub-minute", 30 * time.Second, "<1m"},
+		{"exactly one minute", time.Minute, "1m"},
+		{"under an hour", 45 * time.Minute, "45m"},
+		{"just over an hour", time.Hour + 5*time.Minute, "1h5m"},
+		{"hours and minutes", 4*time.Hour + 32*time.Minute, "4h32m"},
+		{"on the hour", 2 * time.Hour, "2h0m"},
+		{"just under a day", 23*time.Hour + 59*time.Minute, "23h59m"},
+		{"exactly one day", 24 * time.Hour, "1d0h"},
+		{"day and hour", 46 * time.Hour, "1d22h"},
+		{"max 7d window", 6*24*time.Hour + 4*time.Hour, "6d4h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, formatResetCountdown(tt.d))
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // getSubscriptionUsage – testing the full credential + API flow
 // ---------------------------------------------------------------------------
@@ -1058,8 +1098,11 @@ func TestGetSubscriptionQuota_BothZero(t *testing.T) {
 }
 
 func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
-	// Arrange: five-hour usage with a valid reset time
-	resetAt := time.Date(2026, 3, 17, 15, 30, 0, 0, time.UTC)
+	// Arrange: pin "now" so the countdown is deterministic. Reset is exactly
+	// 4h32m in the future → expect "↻4h32m".
+	now := time.Date(2026, 3, 17, 10, 58, 0, 0, time.UTC)
+	resetAt := now.Add(4*time.Hour + 32*time.Minute)
+	mockNow(t, now)
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{FiveHour: 65.0, FiveHourResetAt: resetAt}
 	})
@@ -1067,8 +1110,8 @@ func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: 5h shows inline reset (↻HH:MM), 7d shows no reset (zero value)
-	assert.Equal(t, "📊 65% 5h (↻ 23:30) · 0% 7d (UTC+8)", result)
+	// Assert: 5h carries an inline countdown; 7d has no reset
+	assert.Equal(t, "📊 65% 5h ↻ 4h32m · 0% 7d", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
@@ -1085,8 +1128,11 @@ func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
 }
 
 func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
-	// Arrange: five_hour=0 (no 5h reset), seven_day has data with reset
-	resetAt := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
+	// Arrange: pin now so the countdown is deterministic. Reset is 1d22h
+	// in the future → expect "↻1d22h".
+	now := time.Date(2026, 3, 22, 2, 0, 0, 0, time.UTC)
+	resetAt := now.Add(24*time.Hour + 22*time.Hour) // 46h ≡ 1d22h
+	mockNow(t, now)
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{FiveHour: 0, SevenDay: 42.0, SevenDayResetAt: resetAt}
 	})
@@ -1094,15 +1140,15 @@ func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: both windows shown; only 7d carries an inline reset arrow
-	assert.Contains(t, result, "0% 5h")
-	assert.Contains(t, result, "42% 7d (↻ ")
-	assert.NotContains(t, result, "0% 5h (↻") // 5h has no reset → no arrow
+	// Assert: only 7d carries an inline countdown
+	assert.Equal(t, "📊 0% 5h · 42% 7d ↻ 1d22h", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
-	// Arrange: both five_hour and seven_day present (only 5h has reset)
-	resetAt := time.Date(2026, 3, 17, 15, 0, 0, 0, time.UTC)
+	// Arrange: pin now. 5h reset is 2h0m away → "↻2h0m"; 7d has no reset.
+	now := time.Date(2026, 3, 17, 13, 0, 0, 0, time.UTC)
+	resetAt := now.Add(2 * time.Hour)
+	mockNow(t, now)
 	mockSubscriptionUsage(t, func() *UsageData {
 		return &UsageData{
 			FiveHour:        67.0,
@@ -1114,10 +1160,8 @@ func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: both percentages visible; 5h carries the inline reset arrow
-	assert.Contains(t, result, "67% 5h (↻ ")
-	assert.Contains(t, result, "45% 7d")
-	assert.NotContains(t, result, "45% 7d (↻") // 7d has no reset
+	// Assert: 5h carries inline countdown; 7d has no reset → no trailing countdown
+	assert.Equal(t, "📊 67% 5h ↻ 2h0m · 45% 7d", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_NoResetTime(t *testing.T) {

@@ -27,6 +27,7 @@ var (
 	readlinkFn             = os.Readlink                                       // Override os.Readlink in tests
 	timeZoneFn             = func() (string, int) { return time.Now().Zone() } // Override in tests
 	getHomeDirFn           = getEffectiveHomeDir                               // Override in tests for error injection
+	nowFn                  = time.Now                                          // Override in tests for deterministic countdowns
 )
 
 // claudeAPIProxy holds the proxy URL applied only to api.anthropic.com requests.
@@ -289,14 +290,42 @@ func (c *QuotaCollector) Collect(input interface{}, summary interface{}) (string
 	return getSubscriptionQuota(statusInput), nil
 }
 
-// getSubscriptionQuota returns the subscription quota usage percentage with
-// each window's reset time inlined alongside its percentage.
+// formatResetCountdown renders the duration until a reset as a compact,
+// timezone-free countdown. The cascade matches the convention shared by
+// every mainstream Claude/Codex statusline (ohugonnot, lee-fuhr, et al.):
+//
+//	d <= 0          → "now"
+//	d < 1m          → "<1m"
+//	d < 1h          → "Xm"        (e.g. "45m")
+//	d < 24h         → "XhYm"      (e.g. "4h32m")
+//	d >= 24h        → "XdYh"      (e.g. "1d22h", "6d4h")
+func formatResetCountdown(d time.Duration) string {
+	if d <= 0 {
+		return "now"
+	}
+	if d < time.Minute {
+		return "<1m"
+	}
+	totalHours := int(d / time.Hour)
+	totalMinutes := int(d/time.Minute) % 60
+	if totalHours >= 24 {
+		return fmt.Sprintf("%dd%dh", totalHours/24, totalHours%24)
+	}
+	if totalHours >= 1 {
+		return fmt.Sprintf("%dh%dm", totalHours, totalMinutes)
+	}
+	return fmt.Sprintf("%dm", totalMinutes)
+}
+
+// getSubscriptionQuota renders subscription quota usage as percentage plus
+// a countdown to the next reset for each window. Countdown format is
+// timezone-free, so no "(UTC±N)" suffix is needed.
 //
 // Format examples:
 //
-//	📊 22% 5h (↻ 05:20) · 2% 7d (↻ 03-24) (UTC+8)   // both reset times known
-//	📊 22% 5h (↻ 05:20) · 2% 7d                     // only 5h reset known
-//	📊 0% 5h · 0% 7d                                // freshly reset, no reset metadata yet
+//	📊 22% 5h ↻ 4h32m · 2% 7d ↻ 1d22h   // both windows have a reset
+//	📊 22% 5h ↻ 4h32m · 2% 7d           // only 5h reset known
+//	📊 0% 5h · 0% 7d                    // freshly reset, no reset metadata yet
 func getSubscriptionQuota(input *StatusLineInput) string {
 	var usage *UsageData
 	if getSubscriptionUsageFn != nil {
@@ -309,24 +338,19 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 		return ""
 	}
 
+	now := nowFn()
+
 	fiveHourStr := fmt.Sprintf("%.0f%% 5h", usage.FiveHour)
 	if !usage.FiveHourResetAt.IsZero() {
-		fiveHourStr = fmt.Sprintf("%.0f%% 5h (↻ %s)", usage.FiveHour, usage.FiveHourResetAt.Local().Format("15:04"))
+		fiveHourStr = fmt.Sprintf("%.0f%% 5h ↻ %s", usage.FiveHour, formatResetCountdown(usage.FiveHourResetAt.Sub(now)))
 	}
 
 	sevenDayStr := fmt.Sprintf("%.0f%% 7d", usage.SevenDay)
 	if !usage.SevenDayResetAt.IsZero() {
-		sevenDayStr = fmt.Sprintf("%.0f%% 7d (↻ %s)", usage.SevenDay, usage.SevenDayResetAt.Local().Format("01-02"))
+		sevenDayStr = fmt.Sprintf("%.0f%% 7d ↻ %s", usage.SevenDay, formatResetCountdown(usage.SevenDayResetAt.Sub(now)))
 	}
 
-	result := fmt.Sprintf("📊 %s · %s", fiveHourStr, sevenDayStr)
-
-	// Append the local timezone once when any reset time was shown — keeps
-	// the suffix unambiguous without duplicating it per window.
-	if !usage.FiveHourResetAt.IsZero() || !usage.SevenDayResetAt.IsZero() {
-		result += " (" + getLocalTimeZoneName() + ")"
-	}
-	return result
+	return fmt.Sprintf("📊 %s · %s", fiveHourStr, sevenDayStr)
 }
 
 // getCachePath returns the cache file path

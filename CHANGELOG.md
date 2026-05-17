@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Quota line switches to reset countdowns.** Inline reset times now render
+  as a countdown to the next reset — the convention shared by every
+  mainstream Claude/Codex statusline (ohugonnot, lee-fuhr, et al.). The
+  cascade is `Xm` / `XhYm` / `XdYh` / `<1m` / `now`, and the `↻` glyph
+  returns as the reset marker. The trailing `(UTC±N)` suffix is gone because
+  the countdown is timezone-free. New format:
+  `📊 86% 5h ↻ 4h32m · 8% 7d ↻ 1d22h`. Rationale: a countdown is directly
+  actionable (no mental subtraction from the wall clock), denser than
+  absolute time + TZ, and CI-friendly (no host-timezone dependency in
+  tests).
+
 ## [0.2.1] - 2026-05-17
 
 ### Added
