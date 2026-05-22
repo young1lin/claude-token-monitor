@@ -301,15 +301,78 @@ func TestNewClaudeHTTPClient_AppliesConfiguredProxy(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetCachePath(t *testing.T) {
-	// Arrange
-	homeDir := "/tmp/testhome"
+	// Arrange — getCachePath now takes the already-resolved claude config dir
+	// (either <home>/.claude or $CLAUDE_CONFIG_DIR), so callers join the cache
+	// filename onto whatever getClaudeConfigDir returned.
+	claudeDir := filepath.Join("/tmp/testhome", ".claude")
 
 	// Act
-	got := getCachePath(homeDir)
+	got := getCachePath(claudeDir)
 
 	// Assert
-	expected := filepath.Join(homeDir, ".claude", usageCacheFile)
+	expected := filepath.Join(claudeDir, usageCacheFile)
 	assert.Equal(t, expected, got)
+}
+
+// ---------------------------------------------------------------------------
+// getClaudeConfigDir – multi-account support via $CLAUDE_CONFIG_DIR
+// ---------------------------------------------------------------------------
+
+func TestGetClaudeConfigDir(t *testing.T) {
+	// Snapshot + restore overrideHomeDir so we don't leak between subtests.
+	oldHome := overrideHomeDir
+	t.Cleanup(func() { overrideHomeDir = oldHome })
+
+	t.Run("env var wins over home", func(t *testing.T) {
+		overrideHomeDir = filepath.FromSlash("/tmp/should-not-be-used")
+		t.Setenv("CLAUDE_CONFIG_DIR", filepath.FromSlash("/tmp/account-ME"))
+
+		got, err := getClaudeConfigDir()
+		require.NoError(t, err)
+		assert.Equal(t, filepath.FromSlash("/tmp/account-ME"), got,
+			"CLAUDE_CONFIG_DIR must override the home-derived path")
+	})
+
+	t.Run("empty env falls back to home/.claude", func(t *testing.T) {
+		overrideHomeDir = filepath.FromSlash("/tmp/home")
+		t.Setenv("CLAUDE_CONFIG_DIR", "")
+
+		got, err := getClaudeConfigDir()
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(filepath.FromSlash("/tmp/home"), ".claude"), got)
+	})
+}
+
+// TestReadUsageCache_HonorsClaudeConfigDir guards against the multi-account
+// regression where the ME account showed the default account's quota: when
+// $CLAUDE_CONFIG_DIR is set, the cache must come from that dir, not from
+// <home>/.claude.
+func TestReadUsageCache_HonorsClaudeConfigDir(t *testing.T) {
+	tempHome := t.TempDir()
+	oldHome := overrideHomeDir
+	overrideHomeDir = tempHome
+	t.Cleanup(func() { overrideHomeDir = oldHome })
+
+	customDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	// Write a "wrong" cache into home/.claude (default fallback location).
+	wrongCache := &usageCacheData{FiveHour: 99, SevenDay: 99, FetchedAt: time.Now()}
+	require.NoError(t, os.MkdirAll(filepath.Join(tempHome, ".claude"), 0755))
+	wrongData, err := json.Marshal(wrongCache)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(tempHome, ".claude", usageCacheFile), wrongData, 0644))
+
+	// Write the "right" cache into the custom dir.
+	rightCache := &usageCacheData{FiveHour: 7, SevenDay: 32, FetchedAt: time.Now()}
+	rightData, err := json.Marshal(rightCache)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(customDir, usageCacheFile), rightData, 0644))
+
+	got := readUsageCache()
+	require.NotNil(t, got)
+	assert.Equal(t, float64(7), got.FiveHour, "must read from $CLAUDE_CONFIG_DIR, not <home>/.claude")
+	assert.Equal(t, float64(32), got.SevenDay)
 }
 
 // ---------------------------------------------------------------------------

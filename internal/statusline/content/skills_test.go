@@ -78,6 +78,34 @@ func TestGetUserSkillsCount(t *testing.T) {
 	}
 }
 
+// TestGetUserSkillsCount_HonorsClaudeConfigDir guards against the multi-account
+// bug where the skills count came from ~/.claude/skills instead of the active
+// account's $CLAUDE_CONFIG_DIR/skills.
+func TestGetUserSkillsCount_HonorsClaudeConfigDir(t *testing.T) {
+	homeDir := t.TempDir()
+	customDir := t.TempDir()
+
+	// 5 skills under <home>/.claude/skills — should be IGNORED when env wins.
+	homeSkills := filepath.Join(homeDir, ".claude", "skills")
+	require.NoError(t, os.MkdirAll(homeSkills, 0755))
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(homeSkills, name), 0755))
+	}
+
+	// 2 skills under $CLAUDE_CONFIG_DIR/skills — the right answer.
+	customSkills := filepath.Join(customDir, "skills")
+	require.NoError(t, os.MkdirAll(customSkills, 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(customSkills, "x"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(customSkills, "y"), 0755))
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	got := getUserSkillsCount()
+	assert.Equal(t, 2, got, "must count $CLAUDE_CONFIG_DIR/skills, not <home>/.claude/skills")
+}
+
 func TestGetProjectSkillsCount(t *testing.T) {
 	tests := []struct {
 		name  string

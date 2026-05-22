@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // Memory files cache
@@ -96,15 +98,13 @@ func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	// 3. Scan .claude/rules/ directories
 	info.RulesCount += countRulesUpward(cwd)
 
-	// 4. Check User memory: ~/.claude/CLAUDE.md
-	homeDir, err := fs.UserHomeDir()
-	if err == nil {
-		globalClaudeMd := filepath.Join(homeDir, ".claude", "CLAUDE.md")
-		if _, err := fs.Stat(globalClaudeMd); err == nil {
+	// 4. Check User memory under the active config dir (honors
+	// $CLAUDE_CONFIG_DIR so multi-account setups don't read the wrong tree).
+	if claudeDir, err := claudedir.Resolve(fs.UserHomeDir); err == nil {
+		if _, err := fs.Stat(filepath.Join(claudeDir, "CLAUDE.md")); err == nil {
 			info.CLAUDEMdCount++
 		}
-		globalRulesDir := filepath.Join(homeDir, ".claude", "rules")
-		info.RulesCount += countRulesRecursive(globalRulesDir)
+		info.RulesCount += countRulesRecursive(filepath.Join(claudeDir, "rules"))
 	}
 
 	// Get MCP count
@@ -225,11 +225,12 @@ func getMCPCount(cwd string) int {
 		}
 	}
 
-	// Method 2: Check ~/.claude/settings.json for mcpServers
+	// Method 2: Check active config dir's settings.json for mcpServers (honors
+	// $CLAUDE_CONFIG_DIR — multi-account users have a settings.json per
+	// account and need MCP counts from the one they're actually using).
 	if count == 0 {
-		homeDir, err := fs.UserHomeDir()
-		if err == nil {
-			settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
+		if claudeDir, err := claudedir.Resolve(fs.UserHomeDir); err == nil {
+			settingsPath := filepath.Join(claudeDir, "settings.json")
 			if data, err := fs.ReadFile(settingsPath); err == nil {
 				var settings map[string]interface{}
 				if err := json.Unmarshal(data, &settings); err == nil {

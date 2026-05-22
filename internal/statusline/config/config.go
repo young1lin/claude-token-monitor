@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // Config represents the statusline configuration
@@ -78,8 +80,11 @@ type ComposerConfig struct {
 var configFileNames = []string{"statusline.yml", "statusline.yaml"}
 
 // Load loads configuration from file with priority:
-//  1. Project-level: .claude/statusline.yml then .claude/statusline.yaml
-//  2. Global:        ~/.claude/statusline.yml then ~/.claude/statusline.yaml
+//  1. Project-level: <projectDir>/.claude/statusline.yml then .yaml
+//  2. Global:        <claudeDir>/statusline.yml then .yaml, where claudeDir
+//     comes from claudedir.Resolve — so multi-account users
+//     ($CLAUDE_CONFIG_DIR set) load the plugin config from the account they
+//     are actually in, not from ~/.claude.
 //  3. Default:       built-in defaults
 //
 // The first existing regular file wins; subsequent candidates are skipped.
@@ -92,10 +97,10 @@ func Load(projectDir string) (*Config, error) {
 		}
 	}
 
-	// Then try global configs
-	if home, err := os.UserHomeDir(); err == nil {
+	// Then try global configs under the active per-account dir.
+	if claudeDir, err := claudedir.Resolve(os.UserHomeDir); err == nil {
 		for _, name := range configFileNames {
-			p := filepath.Join(home, ".claude", name)
+			p := filepath.Join(claudeDir, name)
 			if info, err := os.Stat(p); err == nil && !info.IsDir() {
 				return loadFile(p)
 			}

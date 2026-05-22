@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // SkillsCollector collects skills information
@@ -32,14 +34,15 @@ func (c *SkillsCollector) Collect(input interface{}, summary interface{}) (strin
 	return formatSkillsDisplay(projectCount, userCount), nil
 }
 
-// getUserSkillsCount counts user-level skills in ~/.claude/skills/
+// getUserSkillsCount counts user-level skills in the active Claude config
+// dir's skills/ folder. Honors $CLAUDE_CONFIG_DIR so multi-account users see
+// the right account's skill count, not whatever is under ~/.claude.
 func getUserSkillsCount() int {
-	homeDir, err := defaultFileSystem.UserHomeDir()
+	claudeDir, err := claudedir.Resolve(defaultFileSystem.UserHomeDir)
 	if err != nil {
 		return 0
 	}
-	skillsDir := filepath.Join(homeDir, ".claude", "skills")
-	return countSkillDirs(skillsDir)
+	return countSkillDirs(filepath.Join(claudeDir, "skills"))
 }
 
 // getProjectSkillsCount counts project-level skills in .claude/commands/

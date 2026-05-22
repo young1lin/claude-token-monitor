@@ -14,82 +14,8 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
 )
 
-// TestParseRealJSON tests parsing of actual Claude Code input
-func TestParseRealJSON(t *testing.T) {
-	const realJSONInput = `{
-  "session_id": "2e85140e-73a6-4592-9012-24a6565a606d",
-  "transcript_path": "C:\\Users\\杨逸林\\.claude\\projects\\C--PythonProject-minimal-mcp-go-claude-token-monitor\\2e85140e-73a6-4592-9012-24a6565a606d.jsonl",
-  "cwd": "C:\\PythonProject\\minimal-mcp\\go\\claude-token-monitor",
-  "model": {"id": "GLM-4.7", "display_name": "GLM-4.7"},
-  "workspace": {
-    "current_dir": "C:\\PythonProject\\minimal-mcp\\go\\claude-token-monitor",
-    "project_dir": "C:\\PythonProject\\minimal-mcp\\go\\claude-token-monitor"
-  },
-  "version": "2.1.4",
-  "output_style": {"name": "default"},
-  "cost": {
-    "total_cost_usd": 7.2275832000000015,
-    "total_duration_ms": 3764772,
-    "total_api_duration_ms": 1828046,
-    "total_lines_added": 1200,
-    "total_lines_removed": 108
-  },
-  "context_window": {
-    "total_input_tokens": 587879,
-    "total_output_tokens": 60025,
-    "context_window_size": 200000,
-    "current_usage": {
-      "input_tokens": 0,
-      "output_tokens": 0,
-      "cache_creation_input_tokens": 0,
-      "cache_read_input_tokens": 0
-    }
-  },
-  "exceeds_200k_tokens": false
-}`
-
-	var input content.StatusLineInput
-	err := json.Unmarshal([]byte(realJSONInput), &input)
-	if err != nil {
-		t.Fatalf("Failed to parse real JSON: %v", err)
-	}
-
-	// Verify basic fields
-	if input.Model.ID != "GLM-4.7" {
-		t.Errorf("Expected model ID 'GLM-4.7', got '%s'", input.Model.ID)
-	}
-	if input.Model.DisplayName != "GLM-4.7" {
-		t.Errorf("Expected display name 'GLM-4.7', got '%s'", input.Model.DisplayName)
-	}
-
-	// Verify context window
-	if input.ContextWindow.ContextWindowSize != 200000 {
-		t.Errorf("Expected context window size 200000, got %d", input.ContextWindow.ContextWindowSize)
-	}
-
-	// Verify cumulative tokens
-	if input.ContextWindow.TotalInputTokens != 587879 {
-		t.Errorf("Expected total input tokens 587879, got %d", input.ContextWindow.TotalInputTokens)
-	}
-	if input.ContextWindow.TotalOutputTokens != 60025 {
-		t.Errorf("Expected total output tokens 60025, got %d", input.ContextWindow.TotalOutputTokens)
-	}
-
-	// Verify current usage is zero (idle state)
-	if input.ContextWindow.CurrentUsage.InputTokens != 0 {
-		t.Errorf("Expected current usage input to be 0, got %d", input.ContextWindow.CurrentUsage.InputTokens)
-	}
-
-	// Verify workspace
-	if !strings.Contains(input.Cwd, "claude-token-monitor") {
-		t.Errorf("Expected cwd to contain 'claude-token-monitor', got '%s'", input.Cwd)
-	}
-
-	t.Logf("Successfully parsed real JSON from Claude Code")
-}
-
-// TestParseRealJSONWithActiveUsage tests JSON with non-zero current_usage
-func TestParseRealJSONWithActiveUsage(t *testing.T) {
+// TestParseJSONWithActiveUsage tests JSON with non-zero current_usage.
+func TestParseJSONWithActiveUsage(t *testing.T) {
 	const jsonWithActiveUsage = `{
   "session_id": "test-session-id",
   "transcript_path": "C:\\Users\\test\\.claude\\projects\\test\\test.jsonl",

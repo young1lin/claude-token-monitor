@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/net/proxy"
+
+	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // testOverrides holds values that can be overridden during testing.
@@ -122,6 +124,15 @@ func getEffectiveHomeDir() (string, error) {
 		return overrideHomeDir, nil
 	}
 	return os.UserHomeDir()
+}
+
+// getClaudeConfigDir is a package-local wrapper around claudedir.Resolve that
+// plugs in the time.go-specific home-dir injection point (getHomeDirFn). All
+// statusline data sources that read per-account state should go through the
+// shared claudedir package — see internal/claudedir/claudedir.go for the
+// canonical resolution order.
+func getClaudeConfigDir() (string, error) {
+	return claudedir.Resolve(getHomeDirFn)
 }
 
 // Cross-process cache constants (aligned with claude-hud).
@@ -353,18 +364,20 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 	return fmt.Sprintf("📊 %s · %s", fiveHourStr, sevenDayStr)
 }
 
-// getCachePath returns the cache file path
-func getCachePath(homeDir string) string {
-	return filepath.Join(homeDir, ".claude", usageCacheFile)
+// getCachePath returns the cache file path inside the given Claude config dir.
+// claudeDir is the resolved directory (already includes the `.claude` segment
+// in the default case, or the user's $CLAUDE_CONFIG_DIR override otherwise).
+func getCachePath(claudeDir string) string {
+	return filepath.Join(claudeDir, usageCacheFile)
 }
 
 // readUsageCache reads the cache file (no lock, direct read)
 func readUsageCache() *usageCacheData {
-	homeDir, err := getHomeDirFn()
+	claudeDir, err := getClaudeConfigDir()
 	if err != nil {
 		return nil
 	}
-	cachePath := getCachePath(homeDir)
+	cachePath := getCachePath(claudeDir)
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		return nil // File not exists (first run)
@@ -378,12 +391,12 @@ func readUsageCache() *usageCacheData {
 
 // writeUsageCache writes cache atomically (temp file + rename)
 func writeUsageCache(cache *usageCacheData) error {
-	homeDir, err := getHomeDirFn()
+	claudeDir, err := getClaudeConfigDir()
 	if err != nil {
 		return err
 	}
 
-	cachePath := getCachePath(homeDir)
+	cachePath := getCachePath(claudeDir)
 	cacheDir := filepath.Dir(cachePath)
 
 	// Ensure directory exists
@@ -666,13 +679,15 @@ func getSubscriptionUsage() *UsageData {
 		return fallbackOrNil(cache)
 	}
 
-	// Need refresh - read credentials and call API
-	homeDir, err := getHomeDirFn()
+	// Need refresh - read credentials and call API. Resolve from the active
+	// Claude config dir so multi-account setups ($CLAUDE_CONFIG_DIR pointing at
+	// e.g. ~/.claude-account-ME) report the right account.
+	claudeDir, err := getClaudeConfigDir()
 	if err != nil {
 		return fallbackOrNil(cache)
 	}
 
-	credPath := filepath.Join(homeDir, ".claude", ".credentials.json")
+	credPath := filepath.Join(claudeDir, ".credentials.json")
 	credData, err := os.ReadFile(credPath)
 	if err != nil {
 		return fallbackOrNil(cache)

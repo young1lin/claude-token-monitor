@@ -809,7 +809,7 @@ func TestLoad_ProjectConfigIsDir(t *testing.T) {
 }
 
 func TestLoad_GlobalConfigFound(t *testing.T) {
-	// Arrange: set HOME to a temp dir with global config, no project config
+	// Arrange: set HOME to a temp dir with global config, no project config.
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)
@@ -848,8 +848,43 @@ func requireGoDir(t *testing.T, err error) {
 	}
 }
 
+// TestLoad_GlobalConfigHonorsClaudeConfigDir guards against silently loading
+// the wrong account's statusline.yaml in multi-account setups. The global
+// config lookup must read from $CLAUDE_CONFIG_DIR (when set), not from
+// <home>/.claude.
+func TestLoad_GlobalConfigHonorsClaudeConfigDir(t *testing.T) {
+	homeDir := t.TempDir()
+	customDir := t.TempDir()
+
+	// Write a "wrong" config under <home>/.claude that must be IGNORED.
+	wrongYAML := "format:\n  progressBar: braille\n"
+	wrongDir := filepath.Join(homeDir, ".claude")
+	requireGoDir(t, os.MkdirAll(wrongDir, 0755))
+	requireGoDir(t, os.WriteFile(filepath.Join(wrongDir, "statusline.yaml"), []byte(wrongYAML), 0644))
+
+	// Write the "right" config under $CLAUDE_CONFIG_DIR.
+	rightYAML := "format:\n  progressBar: ascii\n"
+	requireGoDir(t, os.WriteFile(filepath.Join(customDir, "statusline.yaml"), []byte(rightYAML), 0644))
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	cfg, err := Load(t.TempDir()) // empty projectDir → only global tried
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("Load() returned nil")
+	}
+	if cfg.Format.ProgressBar != "ascii" {
+		t.Errorf("Load() should read $CLAUDE_CONFIG_DIR's config (progressBar=ascii), got %q",
+			cfg.Format.ProgressBar)
+	}
+}
+
 func TestLoad_GlobalConfigIsDir(t *testing.T) {
-	// Arrange: global config path is a directory, should skip to default
+	// Arrange: global config path is a directory, should skip to default.
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	t.Setenv("USERPROFILE", homeDir)

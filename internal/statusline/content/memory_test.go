@@ -517,3 +517,106 @@ func TestFormatMemoryFilesDisplay_MultipleCLAUDEMd(t *testing.T) {
 	got := formatMemoryFilesDisplay(MemoryFilesInfo{CLAUDEMdCount: 3})
 	assert.Equal(t, "📦 3 CLAUDE.md", got)
 }
+
+// ---------------------------------------------------------------------------
+// CLAUDE_CONFIG_DIR honoring — regression guards for the multi-account bug
+// where global memory/rules/MCP counts came from ~/.claude instead of the
+// active account's $CLAUDE_CONFIG_DIR.
+// ---------------------------------------------------------------------------
+
+// TestGetMemoryFilesInfo_GlobalClaudeMdHonorsConfigDir verifies that the
+// "User memory" CLAUDE.md lookup reads from $CLAUDE_CONFIG_DIR, not from
+// <home>/.claude — placing a CLAUDE.md only under the custom dir must still
+// register as 1, and a CLAUDE.md only under <home>/.claude must be ignored.
+func TestGetMemoryFilesInfo_GlobalClaudeMdHonorsConfigDir(t *testing.T) {
+	defer restoreFileSystem()
+	clearMemoryCache()
+
+	homeDir := t.TempDir()
+	customDir := t.TempDir()
+	cwd := t.TempDir()
+
+	// CLAUDE.md exists under home/.claude but NOT under custom dir.
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".claude"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".claude", "CLAUDE.md"), []byte("wrong"), 0644))
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	info := getMemoryFilesInfo(cwd)
+	assert.Equal(t, 0, info.CLAUDEMdCount, "must NOT count home/.claude/CLAUDE.md when env points elsewhere")
+
+	// Now put one under the custom dir — should count.
+	require.NoError(t, os.WriteFile(filepath.Join(customDir, "CLAUDE.md"), []byte("right"), 0644))
+	clearMemoryCache()
+	info = getMemoryFilesInfo(cwd)
+	assert.Equal(t, 1, info.CLAUDEMdCount, "must count $CLAUDE_CONFIG_DIR/CLAUDE.md")
+}
+
+// TestGetMemoryFilesInfo_GlobalRulesHonorsConfigDir verifies global rules count
+// reads from $CLAUDE_CONFIG_DIR/rules, not <home>/.claude/rules.
+func TestGetMemoryFilesInfo_GlobalRulesHonorsConfigDir(t *testing.T) {
+	defer restoreFileSystem()
+	clearMemoryCache()
+
+	homeDir := t.TempDir()
+	customDir := t.TempDir()
+	cwd := t.TempDir()
+
+	// 4 rule files under home/.claude/rules — must be IGNORED.
+	homeRules := filepath.Join(homeDir, ".claude", "rules")
+	require.NoError(t, os.MkdirAll(homeRules, 0755))
+	for _, name := range []string{"a.md", "b.md", "c.md", "d.md"} {
+		require.NoError(t, os.WriteFile(filepath.Join(homeRules, name), []byte("rule"), 0644))
+	}
+
+	// 2 rule files under custom dir's rules — the right answer.
+	customRules := filepath.Join(customDir, "rules")
+	require.NoError(t, os.MkdirAll(customRules, 0755))
+	for _, name := range []string{"x.md", "y.md"} {
+		require.NoError(t, os.WriteFile(filepath.Join(customRules, name), []byte("rule"), 0644))
+	}
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	info := getMemoryFilesInfo(cwd)
+	assert.Equal(t, 2, info.RulesCount, "must count $CLAUDE_CONFIG_DIR/rules, not <home>/.claude/rules")
+}
+
+// TestGetMCPCount_GlobalSettingsHonorsConfigDir verifies the fallback "global
+// settings.json mcpServers" lookup reads from $CLAUDE_CONFIG_DIR/settings.json,
+// not <home>/.claude/settings.json.
+func TestGetMCPCount_GlobalSettingsHonorsConfigDir(t *testing.T) {
+	defer restoreFileSystem()
+
+	homeDir := t.TempDir()
+	customDir := t.TempDir()
+	cwd := t.TempDir()
+
+	// 5-server settings.json under home/.claude — must be IGNORED.
+	homeSettings := map[string]any{
+		"mcpServers": map[string]any{"h1": map[string]string{}, "h2": map[string]string{}, "h3": map[string]string{}, "h4": map[string]string{}, "h5": map[string]string{}},
+	}
+	homeJSON, err := json.Marshal(homeSettings)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".claude"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".claude", "settings.json"), homeJSON, 0644))
+
+	// 2-server settings.json under custom dir — the right answer.
+	customSettings := map[string]any{
+		"mcpServers": map[string]any{"c1": map[string]string{}, "c2": map[string]string{}},
+	}
+	customJSON, err := json.Marshal(customSettings)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(customDir, "settings.json"), customJSON, 0644))
+
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	got := getMCPCount(cwd)
+	assert.Equal(t, 2, got, "must read $CLAUDE_CONFIG_DIR/settings.json, not <home>/.claude/settings.json")
+}
