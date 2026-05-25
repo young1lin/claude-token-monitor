@@ -42,8 +42,8 @@ func TestDefaultConfig(t *testing.T) {
 	}
 
 	// Test default cache config
-	if cfg.Cache.UsageTTLSeconds != 60 {
-		t.Errorf("Default Cache.UsageTTLSeconds should be 60, got %d", cfg.Cache.UsageTTLSeconds)
+	if cfg.Cache.UsageTTLSeconds != 90 {
+		t.Errorf("Default Cache.UsageTTLSeconds should be 90, got %d", cfg.Cache.UsageTTLSeconds)
 	}
 }
 
@@ -393,9 +393,9 @@ func TestGetUsageCacheTTL(t *testing.T) {
 		wantSec int
 	}{
 		{
-			name:    "default 60 seconds",
-			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: 60}},
-			wantSec: 60,
+			name:    "default 90 seconds",
+			cfg:     DefaultConfig(),
+			wantSec: 90,
 		},
 		{
 			name:    "custom 120 seconds",
@@ -403,14 +403,14 @@ func TestGetUsageCacheTTL(t *testing.T) {
 			wantSec: 120,
 		},
 		{
-			name:    "zero falls back to 60s default (never zero TTL)",
+			name:    "zero falls back to 90s default (never zero TTL)",
 			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: 0}},
-			wantSec: 60,
+			wantSec: 90,
 		},
 		{
-			name:    "negative falls back to 60s default",
+			name:    "negative falls back to 90s default",
 			cfg:     &Config{Cache: CacheConfig{UsageTTLSeconds: -1}},
-			wantSec: 60,
+			wantSec: 90,
 		},
 	}
 

@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.4] - 2026-05-25
+
+### Added
+- **GLM/Z.ai Coding Plan quota support.** When `ANTHROPIC_BASE_URL` points to
+  `api.z.ai`, `open.bigmodel.cn`, or `dev.bigmodel.cn`, the quota line now
+  reads GLM's monitor quota endpoint and renders plan labels (`[Max]`,
+  `[Pro]`, `[Lite]`), token windows, and MCP monthly call budgets.
+- **Provider/account-isolated usage caches.** GLM cache files are keyed by
+  provider plus a short fingerprint of `ANTHROPIC_AUTH_TOKEN`, preventing one
+  local GLM account's quota from being shown after switching to another
+  token. Anthropic keeps the legacy `.usage-cache.json` filename.
+
+### Changed
+- Default `cache.usageTTLSeconds` is now 90 seconds, reducing successful
+  usage/quota polling to at most 40 requests per hour per provider/account
+  while keeping quota display reasonably fresh. Users can still set 60 or
+  120 seconds explicitly in YAML.
+- Quota percentages and context percentages now use separate colour scales:
+  quota gets more urgent as usage approaches the limit, while context gets
+  more urgent as the AutoCompact threshold approaches.
+- README now documents the fixed grid's glanceable-alignment goal and
+  recommends Windows Terminal on Windows 11 for the most consistent column
+  alignment.
+
+### Fixed
+- GLM/Z.ai quota polling now treats HTTP 429 as a rate-limit response and
+  honors `Retry-After` before falling back to the existing 60 → 120 → 240 s
+  exponential backoff.
 
 ## [0.2.3] - 2026-05-25
 

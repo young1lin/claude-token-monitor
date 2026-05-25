@@ -43,10 +43,11 @@ network:
 
 # Cache (v0.2.1+).
 cache:
-  # Seconds to cache a successful OAuth-usage response. Default 60s
-  # (~1 request/min). Failure cache (15s) and 429 backoff
+  # Seconds to cache a successful usage/quota response. Default 90s
+  # (~40 requests/hour). Failure cache (15s) and 429 fallback backoff
   # (60→120→240s, capped at 5min) are NOT configurable.
-  usageTTLSeconds: 60
+  # When a 429 response includes Retry-After, that server value wins.
+  usageTTLSeconds: 90
 
 content:
   composers:
@@ -58,6 +59,12 @@ content:
 ```
 
 > Don't want to write the YAML by hand? Run `/claude-token-monitor:setup` — it ships with an interactive proxy wizard (enable? → protocol → host:port → auth? → username / password) that writes `.claude/statusline.yml` for you. The file is in `.gitignore`, so proxy credentials stay per-machine.
+
+### GLM / Z.ai Quota Display
+
+When `ANTHROPIC_BASE_URL` points to `api.z.ai`, `open.bigmodel.cn`, or `dev.bigmodel.cn`, the subscription quota line switches to the GLM monitor quota API. It shows the plan tag (`[Max]` / `[Pro]` / `[Lite]`), 5h / 7d token windows, and the GLM Coding Plan MCP monthly call budget, for example `MCP 380/4k`. Anthropic accounts do not have an MCP quota, so no MCP segment is shown there.
+
+GLM cache files are separated by `provider + ANTHROPIC_AUTH_TOKEN` fingerprint, so switching between Pro / Lite or different Z.ai / Zhipu accounts on the same machine does not reuse stale quota from another account. On HTTP 429, the plugin honors the server's `Retry-After` value first.
 
 ## Extending
 
@@ -160,7 +167,7 @@ The plugin writes one or more lines of plain text (with optional ANSI color code
 ```
 📁 claude-token-monitor | [Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)] | v2.1.143
 🌿 main                 | 📦 2 CLAUDE.md + 2 rules                                | 💰 $0.53 · I:60.6K O:78
-🕐 2026-05-17 13:27     | 📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h                     | 💾 294.0 MB
+🕐 2026-05-17 13:27     | 📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h              | 💾 294.0 MB
 ✓ Read(9) ✓ Grep(5) ✓ Glob(2) ✖ Bash(1)
 ```
 
@@ -173,7 +180,7 @@ The plugin writes one or more lines of plain text (with optional ANSI color code
 | `📦 2 CLAUDE.md + 2 rules` | Number of CLAUDE.md / rules files in scope |
 | `💰 $0.53 · I:60.6K O:78` | Session-cumulative cost and input/output tokens |
 | `🕐 2026-05-17 13:27` | Date + time (12h / 24h controlled by `format.timeFormat`) |
-| `📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h` | Subscription quota: 5h / 7d utilization + countdown to next reset (v0.2.2 switched to countdowns; no more absolute time / timezone suffix) |
+| `📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h` | Subscription quota: plan, 5h / 7d utilization, countdowns to reset; GLM/Z.ai accounts additionally show the MCP monthly call budget |
 | `💾 294.0 MB` | Resident memory of the statusline process |
 | `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | Tool calls this session — `✓` succeeded, `✖` failed |
 
@@ -200,8 +207,11 @@ Because the plugin is **spawned fresh on every refresh**, recompiling the binary
 2. **Fast** — Cold start 30–50ms, warm cache 10–20ms; transcript is read tail-only.
 3. **Safe** — A crash in the plugin does not affect Claude Code. It simply shows no status text.
 4. **Cross-platform** — Single Go binary with no external dependencies.
+5. **Stable grid** — The default output uses a fixed-width 4-row grid. Each cell keeps the same semantic position, so model, git, cost, quota, memory, and tool-call data do not drift around when one field gets longer or shorter. You can glance at the statusline and know what each position means.
 
-> Note: To render the subscription quota line, the plugin issues one OAuth-usage request to `api.anthropic.com` (default 60s cache, 15s failure cache, 60→120→240s exponential backoff on 429s, capped at 5min). If you're behind a corporate firewall or geo-restricted, configure `network.claudeAPIProxy` above.
+> Terminal recommendation: on Windows, use the Windows 11 built-in Windows Terminal for the best alignment. Its ANSI color, emoji, and block-character width handling is more consistent; older cmd / PowerShell hosts or embedded terminals may show slight column drift because they use different character-width rules.
+
+> Note: To render the subscription quota line, the plugin issues a usage/quota request to the active provider (successful responses are cached for 90s by default, failures for 15s; 429s honor `Retry-After` when present, otherwise fall back to 60→120→240s exponential backoff capped at 5min). If access to `api.anthropic.com` is blocked by a firewall or geo-restriction, configure `network.claudeAPIProxy` above.
 
 ### Debugging with `--debug`
 

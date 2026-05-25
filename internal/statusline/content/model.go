@@ -43,6 +43,25 @@ func NewTokenBarCollector() *TokenBarCollector {
 	}
 }
 
+// contextPercentColor maps a context-window utilisation percentage to its
+// ANSI colour code. The thresholds are tuned for AutoCompact behaviour
+// (Claude Code compacts around 75%), so red kicks in at 60% to give the
+// user a few turns of warning. This is the OPPOSITE direction from
+// quotaPercentColor in time.go: a high context percentage is a warning
+// signal, whereas a high quota percentage means "less budget remaining" —
+// the two scales must not be unified.
+func contextPercentColor(pct float64) string {
+	switch {
+	case pct >= 60:
+		return "\x1b[1;31m" // red: AutoCompact imminent
+	case pct >= 40:
+		return "\x1b[1;33m" // yellow: heads-up
+	case pct >= 20:
+		return "\x1b[1;36m" // cyan: filling up
+	}
+	return "\x1b[1;32m" // green: plenty of room
+}
+
 // Collect returns the token progress bar
 func (c *TokenBarCollector) Collect(input interface{}, summary interface{}) (string, error) {
 	statusInput, ok := input.(*StatusLineInput)
@@ -66,19 +85,7 @@ func (c *TokenBarCollector) Collect(input interface{}, summary interface{}) (str
 	filled := strings.Repeat("█", fillWidth)
 	empty := strings.Repeat("░", barWidth-fillWidth)
 
-	var colorCode, resetCode string
-	resetCode = "\x1b[0m"
-	if pct >= 60 {
-		colorCode = "\x1b[1;31m"
-	} else if pct >= 40 {
-		colorCode = "\x1b[1;33m"
-	} else if pct >= 20 {
-		colorCode = "\x1b[1;36m"
-	} else {
-		colorCode = "\x1b[1;32m"
-	}
-
-	return fmt.Sprintf("[%s%s%s%s]", colorCode, filled, resetCode, empty), nil
+	return fmt.Sprintf("[%s%s\x1b[0m%s]", contextPercentColor(pct), filled, empty), nil
 }
 
 // TokenInfoCollector collects token usage information
@@ -93,7 +100,10 @@ func NewTokenInfoCollector() *TokenInfoCollector {
 	}
 }
 
-// Collect returns token usage information
+// Collect returns token usage information. The percentage in parentheses
+// shares the bar's 4-tier colour (see contextPercentColor) so the text and
+// the bar tell the same story; the absolute token counts stay uncoloured
+// because they are reference values, not warning signals.
 func (c *TokenInfoCollector) Collect(input interface{}, summary interface{}) (string, error) {
 	statusInput, ok := input.(*StatusLineInput)
 	if !ok {
@@ -108,7 +118,7 @@ func (c *TokenInfoCollector) Collect(input interface{}, summary interface{}) (st
 	}
 	pct := float64(tokens) / float64(maxTokens) * 100
 
-	return fmt.Sprintf("%s/%dK (%.1f%%)", formatNumber(tokens), maxTokens/1000, pct), nil
+	return fmt.Sprintf("%s/%dK (%s%.1f%%\x1b[0m)", formatNumber(tokens), maxTokens/1000, contextPercentColor(pct), pct), nil
 }
 
 // formatNumber formats a number with K/M suffixes

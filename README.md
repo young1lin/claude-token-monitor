@@ -52,9 +52,10 @@ network:
 
 # 缓存配置（v0.2.1+）
 cache:
-  # OAuth usage 响应的缓存秒数。默认 60s ≈ 每分钟一次请求。
+  # usage/quota 响应的成功缓存秒数。默认 90s ≈ 每小时最多 40 次请求。
   # 失败缓存 (15s) 与 429 退避 (60→120→240s, 上限 5min) 不可配置。
-  usageTTLSeconds: 60
+  # 429 响应带 Retry-After 时优先遵守服务端返回值。
+  usageTTLSeconds: 90
 
 content:
   composers:
@@ -66,6 +67,12 @@ content:
 ```
 
 > 不想手写？运行 `/claude-token-monitor:setup`，里面有交互式代理向导（启用？→ 协议 → host:port → 是否鉴权 → 用户名/密码），会自动写入 `.claude/statusline.yml`。该文件已加入 `.gitignore`，凭据不会进仓库。
+
+### GLM / Z.ai 配额显示
+
+当 `ANTHROPIC_BASE_URL` 指向 `api.z.ai`、`open.bigmodel.cn` 或 `dev.bigmodel.cn` 时，订阅配额行会改用 GLM monitor quota 接口。输出会显示套餐标签（`[Max]` / `[Pro]` / `[Lite]`）、5h / 7d token 窗口，以及 GLM Coding Plan 的 MCP 月度调用量（如 `MCP 380/4k`）。Anthropic 账号没有 MCP 配额，不会显示 MCP 段。
+
+GLM 缓存按 `provider + ANTHROPIC_AUTH_TOKEN` 指纹分文件保存；同一机器上切换 Pro / Lite 或不同 Z.ai / 智谱账号时，不会互相复用旧 quota。遇到 429 会优先遵守服务端 `Retry-After`。
 
 ## 扩展开发
 
@@ -168,7 +175,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 ```
 📁 claude-token-monitor | [Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)] | v2.1.143
 🌿 main                 | 📦 2 CLAUDE.md + 2 rules                                | 💰 $0.53 · I:60.6K O:78
-🕐 2026-05-17 13:27     | 📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h                     | 💾 294.0 MB
+🕐 2026-05-17 13:27     | 📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h              | 💾 294.0 MB
 ✓ Read(9) ✓ Grep(5) ✓ Glob(2) ✖ Bash(1)
 ```
 
@@ -181,7 +188,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 | `📦 2 CLAUDE.md + 2 rules` | 当前作用域命中的 CLAUDE.md 与规则文件数 |
 | `💰 $0.53 · I:60.6K O:78` | 当前会话累计费用、输入 / 输出 token |
 | `🕐 2026-05-17 13:27` | 当前日期时间（`format.timeFormat` 控制 12/24h） |
-| `📊 51% 5h ↻ 2h22m · 14% 7d ↻ 1d19h` | 订阅配额：5h / 7d 用量百分比 + 距离下次重置的倒计时（v0.2.2 起为倒计时，不再显示绝对时间和时区） |
+| `📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h` | 订阅配额：套餐、5h / 7d 用量百分比、距离下次重置的倒计时；GLM/Z.ai 账号会额外显示 MCP 月度调用量 |
 | `💾 294.0 MB` | 当前 statusline 进程的常驻内存 |
 | `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | 本会话工具调用次数，`✓` 成功 / `✖` 失败 |
 
@@ -208,8 +215,11 @@ Claude Code 通过 stdin 发送 JSON 数据：
 2. **Fast** — 冷启动 30–50ms，热缓存命中 10–20ms；transcript 只读尾部。
 3. **Safe** — 插件崩溃不会影响 Claude Code，只是不显示状态文本。
 4. **Cross-platform** — 单个 Go 二进制，零外部依赖。
+5. **Stable grid** — 默认输出使用固定列宽的 4 行 grid。这样每一格的语义位置保持稳定：模型、Git、花费、配额、内存等信息不会因为某个字段内容变长/变短而整体漂移，扫一眼就能知道每个位置显示的是什么。
 
-> 注：为了渲染订阅配额行，插件会向 `api.anthropic.com` 发送一次 OAuth usage 请求（默认 60s 缓存，失败 15s 缓存，遇 429 时 60→120→240s 指数退避，封顶 5min）。如果你在企业网或者跨境访问受限，请配置上面的 `network.claudeAPIProxy`。
+> 终端建议：Windows 上推荐使用 Windows 11 自带的 Windows Terminal。它对 ANSI 颜色、emoji 和方块字符的宽度处理更一致，grid 对齐效果最好；旧版 cmd / PowerShell 或不同内嵌终端可能会因为字符宽度算法不同而出现轻微错位。
+
+> 注：为了渲染订阅配额行，插件会向对应 provider 的 usage/quota 接口发送请求（成功响应默认 90s 缓存，失败 15s 缓存，遇 429 时优先遵守 `Retry-After`，否则使用 60→120→240s 指数退避，封顶 5min）。如果你在企业网或者跨境访问 `api.anthropic.com` 受限，请配置上面的 `network.claudeAPIProxy`。
 
 ### Debugging with `--debug`
 

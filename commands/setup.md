@@ -258,9 +258,10 @@ network:
   claudeAPIProxy: "<final URL or empty>"
 
 cache:
-  # Seconds to cache a successful OAuth-usage response.
-  # Default 60 (~1 req/min). Non-positive falls back to 60.
-  usageTTLSeconds: 60
+  # Seconds to cache a successful usage/quota response.
+  # Default 90 (~40 req/hour). Non-positive falls back to 90.
+  # 429 responses with Retry-After always use the server's retry window.
+  usageTTLSeconds: 90
 ```
 
 ### Precedence (for advanced users)

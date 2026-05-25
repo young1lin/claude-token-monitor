@@ -113,14 +113,14 @@ func TestFallbackOrNil(t *testing.T) {
 
 func TestUsageCacheTTL_SetterAndGetter(t *testing.T) {
 	// Arrange: snapshot the current TTL so the package's shared state is
-	// restored after the test — other tests rely on the default 60s.
+	// restored after the test — other tests rely on the default 90s.
 	original := getUsageCacheTTL()
 	t.Cleanup(func() { SetUsageCacheTTL(original) })
 
-	t.Run("default is 60 seconds", func(t *testing.T) {
-		SetUsageCacheTTL(original) // ensure baseline
-		if got := getUsageCacheTTL(); got != 60*time.Second {
-			t.Errorf("default TTL = %v, want 60s", got)
+	t.Run("default is 90 seconds", func(t *testing.T) {
+		SetUsageCacheTTL(time.Duration(defaultUsageCacheTTLSecs) * time.Second)
+		if got := getUsageCacheTTL(); got != 90*time.Second {
+			t.Errorf("default TTL = %v, want 90s", got)
 		}
 	})
 
@@ -148,7 +148,7 @@ func TestUsageCacheTTL_SetterAndGetter(t *testing.T) {
 // via SetUsageCacheTTL actually drives shouldRefreshResult's decision — i.e.
 // the YAML config is no longer dead state.
 func TestShouldRefreshResult_HonorsConfiguredTTL(t *testing.T) {
-	// Arrange: cache 90 seconds old. At default 60s TTL it would be stale,
+	// Arrange: cache 120 seconds old. At default 90s TTL it would be stale,
 	// at 5-minute TTL it should still be fresh.
 	homeDir := setupTempHomeDir(t)
 	original := getUsageCacheTTL()
@@ -156,13 +156,13 @@ func TestShouldRefreshResult_HonorsConfiguredTTL(t *testing.T) {
 
 	c := &usageCacheData{
 		FiveHour:  42.0,
-		FetchedAt: time.Now().Add(-90 * time.Second),
+		FetchedAt: time.Now().Add(-120 * time.Second),
 	}
 	writeTestCacheFile(t, homeDir, c)
 
-	// Act: bump TTL to 5 minutes — the 90s-old cache should now look fresh
+	// Act: bump TTL to 5 minutes — the 120s-old cache should now look fresh
 	SetUsageCacheTTL(5 * time.Minute)
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh, "configured 5m TTL should keep 90s-old cache fresh")
@@ -307,7 +307,7 @@ func TestGetCachePath(t *testing.T) {
 	claudeDir := filepath.Join("/tmp/testhome", ".claude")
 
 	// Act
-	got := getCachePath(claudeDir)
+	got := getCachePath(claudeDir, "anthropic", "")
 
 	// Assert
 	expected := filepath.Join(claudeDir, usageCacheFile)
@@ -369,7 +369,7 @@ func TestReadUsageCache_HonorsClaudeConfigDir(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(customDir, usageCacheFile), rightData, 0644))
 
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, float64(7), got.FiveHour, "must read from $CLAUDE_CONFIG_DIR, not <home>/.claude")
 	assert.Equal(t, float64(32), got.SevenDay)
@@ -384,7 +384,7 @@ func TestReadUsageCache_FileNotExists(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	cache := readUsageCache()
+	cache := readUsageCache("anthropic", "")
 
 	// Assert
 	assert.Nil(t, cache)
@@ -398,7 +398,7 @@ func TestReadUsageCache_CorruptedJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, usageCacheFile), []byte("not-json{{{"), 0644))
 
 	// Act
-	cache := readUsageCache()
+	cache := readUsageCache("anthropic", "")
 
 	// Assert
 	assert.Nil(t, cache)
@@ -416,7 +416,7 @@ func TestReadUsageCache_ValidFile(t *testing.T) {
 	writeTestCacheFile(t, homeDir, original)
 
 	// Act
-	cache := readUsageCache()
+	cache := readUsageCache("anthropic", "")
 
 	// Assert
 	require.NotNil(t, cache)
@@ -446,7 +446,7 @@ func TestWriteAndReadUsageCache(t *testing.T) {
 	// Act
 	err := writeUsageCache(original)
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 
 	// Assert
 	require.NotNil(t, got)
@@ -467,7 +467,7 @@ func TestShouldRefreshResult_NoCache(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert
 	assert.True(t, shouldRefresh)
@@ -476,7 +476,7 @@ func TestShouldRefreshResult_NoCache(t *testing.T) {
 }
 
 func TestShouldRefreshResult_FreshSuccessCache(t *testing.T) {
-	// Arrange: cache written 30s ago (within 60s TTL)
+	// Arrange: cache written 30s ago (within 90s TTL)
 	homeDir := setupTempHomeDir(t)
 	c := &usageCacheData{
 		FiveHour:  20.0,
@@ -485,7 +485,7 @@ func TestShouldRefreshResult_FreshSuccessCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh)
@@ -503,7 +503,7 @@ func TestShouldRefreshResult_FreshFailureCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh)
@@ -512,7 +512,7 @@ func TestShouldRefreshResult_FreshFailureCache(t *testing.T) {
 }
 
 func TestShouldRefreshResult_ExpiredCache(t *testing.T) {
-	// Arrange: cache written 2 minutes ago (past 60s TTL)
+	// Arrange: cache written 2 minutes ago (past 90s TTL)
 	homeDir := setupTempHomeDir(t)
 	c := &usageCacheData{
 		FiveHour:  10.0,
@@ -521,7 +521,7 @@ func TestShouldRefreshResult_ExpiredCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult()
+	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: should trigger refresh
 	assert.True(t, shouldRefresh)
@@ -542,7 +542,7 @@ func TestShouldRefreshResult_RateLimitBackoff_WithLastGoodData(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: serve last good data during backoff
 	assert.False(t, shouldRefresh)
@@ -563,7 +563,7 @@ func TestShouldRefreshResult_RateLimitBackoff_NoLastGoodData(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: serve cache itself (no last good data available)
 	assert.False(t, shouldRefresh)
@@ -583,7 +583,7 @@ func TestShouldRefreshResult_RateLimitExpired(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult()
+	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: backoff expired, trigger refresh
 	assert.True(t, shouldRefresh)
@@ -608,7 +608,7 @@ func TestWriteRefreshedCache_ValidData(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, 0, got.RateLimitedCount, "rate limit count should reset to 0 on success")
 	assert.Empty(t, got.APIError)
@@ -630,7 +630,7 @@ func TestWriteRefreshedCache_ZeroData_PreservesOldLastGoodData(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	require.NotNil(t, got.LastGoodData, "LastGoodData from old cache should be preserved")
 	assert.InDelta(t, 88.0, got.LastGoodData.FiveHour, 0.001)
@@ -646,7 +646,7 @@ func TestWriteRefreshedCache_NilOldCache(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 12.0, got.FiveHour, 0.001)
 }
@@ -662,11 +662,11 @@ func TestWriteRefreshFailedCache_RateLimit_ExplicitRetryAfter(t *testing.T) {
 	before := time.Now()
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, true, 90)
+	err := writeRefreshFailedCache(oldCache, true, 90, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 1, got.RateLimitedCount)
@@ -683,11 +683,11 @@ func TestWriteRefreshFailedCache_RateLimit_Backoff(t *testing.T) {
 	before := time.Now()
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, true, 0)
+	err := writeRefreshFailedCache(oldCache, true, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 2, got.RateLimitedCount)
@@ -702,11 +702,11 @@ func TestWriteRefreshFailedCache_NetworkError(t *testing.T) {
 	oldCache := &usageCacheData{FiveHour: 50.0, RateLimitedCount: 3}
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, false, 0)
+	err := writeRefreshFailedCache(oldCache, false, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.True(t, got.APIUnavailable)
 	assert.Equal(t, "network", got.APIError)
@@ -718,15 +718,35 @@ func TestWriteRefreshFailedCache_NilOldCache_RateLimit(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act — should not panic
-	err := writeRefreshFailedCache(nil, true, 0)
+	err := writeRefreshFailedCache(nil, true, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 1, got.RateLimitedCount)
 	assert.False(t, got.APIUnavailable)
+}
+
+func TestWriteRefreshFailedCache_NilOldCache_RateLimit_ExplicitRetryAfter(t *testing.T) {
+	// Arrange: first-ever 429 with explicit Retry-After of 90 seconds
+	setupTempHomeDir(t)
+	before := time.Now()
+
+	// Act
+	err := writeRefreshFailedCache(nil, true, 90, "", "")
+
+	// Assert
+	require.NoError(t, err)
+	got := readUsageCache("anthropic", "")
+	require.NotNil(t, got)
+	assert.Equal(t, "rate-limited", got.APIError)
+	assert.Equal(t, 1, got.RateLimitedCount)
+	assert.True(t, got.RetryAfterUntil.After(before.Add(80*time.Second)),
+		"RetryAfterUntil=%v should honor Retry-After", got.RetryAfterUntil)
+	assert.True(t, got.RetryAfterUntil.Before(before.Add(100*time.Second)),
+		"RetryAfterUntil=%v should be close to Retry-After, not exponential fallback", got.RetryAfterUntil)
 }
 
 func TestWriteRefreshFailedCache_NilOldCache_Network(t *testing.T) {
@@ -734,11 +754,11 @@ func TestWriteRefreshFailedCache_NilOldCache_Network(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act — should not panic
-	err := writeRefreshFailedCache(nil, false, 0)
+	err := writeRefreshFailedCache(nil, false, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.True(t, got.APIUnavailable)
 	assert.Equal(t, "network", got.APIError)
@@ -973,7 +993,7 @@ func TestGetSubscriptionUsage_CustomApiEndpoint(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	assert.Nil(t, result)
@@ -987,13 +1007,13 @@ func TestGetSubscriptionUsage_FreshCache_NoCreds(t *testing.T) {
 	c := &usageCacheData{
 		FiveHour:  33.3,
 		SevenDay:  11.1,
-		FetchedAt: time.Now().Add(-10 * time.Second), // within 60s TTL
+		FetchedAt: time.Now().Add(-10 * time.Second), // within 90s TTL
 	}
 	writeTestCacheFile(t, homeDir, c)
 	// No credentials file written intentionally – cache hit must not read creds
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert: served from cache
 	require.NotNil(t, result)
@@ -1007,7 +1027,7 @@ func TestGetSubscriptionUsage_NoCredentialsFile(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	assert.Nil(t, result)
@@ -1023,7 +1043,7 @@ func TestGetSubscriptionUsage_InvalidCredentialsJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte("not-json{{"), 0644))
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	assert.Nil(t, result)
@@ -1037,7 +1057,7 @@ func TestGetSubscriptionUsage_NoAccessToken(t *testing.T) {
 	writeTestCredentials(t, homeDir, "", "claude-pro", 0)
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	assert.Nil(t, result)
@@ -1052,7 +1072,7 @@ func TestGetSubscriptionUsage_ExpiredToken(t *testing.T) {
 	writeTestCredentials(t, homeDir, "stale-token", "claude-pro", expiredAt)
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	assert.Nil(t, result)
@@ -1067,7 +1087,7 @@ func TestGetSubscriptionUsage_APIUser_NoSubscription(t *testing.T) {
 	writeTestCredentials(t, homeDir, "api-token", "", farFuture)
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert: API user → nil (no quota display)
 	assert.Nil(t, result)
@@ -1092,7 +1112,7 @@ func TestGetSubscriptionUsage_Success(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert
 	require.NotNil(t, result)
@@ -1100,7 +1120,7 @@ func TestGetSubscriptionUsage_Success(t *testing.T) {
 	assert.InDelta(t, 45.0, result.SevenDay, 0.001)
 
 	// Cache should have been written
-	cached := readUsageCache()
+	cached := readUsageCache("anthropic", "")
 	require.NotNil(t, cached)
 	assert.InDelta(t, 72.0, cached.FiveHour, 0.001)
 }
@@ -1119,13 +1139,13 @@ func TestGetSubscriptionUsage_APIRateLimit_WritesFailureCache(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Assert: no previous data → nil
 	assert.Nil(t, result)
 
 	// Failure cache must have been written
-	cached := readUsageCache()
+	cached := readUsageCache("anthropic", "")
 	require.NotNil(t, cached)
 	assert.Equal(t, "rate-limited", cached.APIError)
 	assert.Equal(t, 1, cached.RateLimitedCount)
@@ -1156,8 +1176,9 @@ func TestGetSubscriptionQuota_BothZero(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: shows full info even at 0% usage (no reset times → edge case format)
-	assert.Equal(t, "📊 0% 5h · 0% 7d", result)
+	// Assert: shows full info even at 0% usage (no reset times → edge case format).
+	// 0% sits in the lowest tier so both percentages are wrapped in bright green.
+	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h · \x1b[1;92m0%\x1b[0m 7d", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
@@ -1173,8 +1194,9 @@ func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: 5h carries an inline countdown; 7d has no reset
-	assert.Equal(t, "📊 65% 5h ↻ 4h32m · 0% 7d", result)
+	// Assert: 5h carries an inline countdown; 7d has no reset.
+	// 65% → yellow (heads-up); 0% → bright green (plenty of headroom).
+	assert.Equal(t, "📊 \x1b[1;33m65%\x1b[0m 5h ↻ 4h32m · \x1b[1;92m0%\x1b[0m 7d", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
@@ -1186,8 +1208,9 @@ func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: always shows both 5h and 7d, no reset time when not provided
-	assert.Equal(t, "📊 80% 5h · 0% 7d", result)
+	// Assert: always shows both 5h and 7d, no reset time when not provided.
+	// 80% lands exactly on the red tier boundary.
+	assert.Equal(t, "📊 \x1b[1;31m80%\x1b[0m 5h · \x1b[1;92m0%\x1b[0m 7d", result)
 }
 
 func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
@@ -1203,8 +1226,9 @@ func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: only 7d carries an inline countdown
-	assert.Equal(t, "📊 0% 5h · 42% 7d ↻ 1d22h", result)
+	// Assert: only 7d carries an inline countdown.
+	// 42% → cyan (past halfway); 0% → bright green.
+	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h · \x1b[1;36m42%\x1b[0m 7d ↻ 1d22h", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
@@ -1223,8 +1247,9 @@ func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
 	// Act
 	result := getSubscriptionQuota(&StatusLineInput{})
 
-	// Assert: 5h carries inline countdown; 7d has no reset → no trailing countdown
-	assert.Equal(t, "📊 67% 5h ↻ 2h0m · 45% 7d", result)
+	// Assert: 5h carries inline countdown; 7d has no reset → no trailing countdown.
+	// 67% → yellow tier; 45% → cyan tier.
+	assert.Equal(t, "📊 \x1b[1;33m67%\x1b[0m 5h ↻ 2h0m · \x1b[1;36m45%\x1b[0m 7d", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_NoResetTime(t *testing.T) {
@@ -1282,13 +1307,13 @@ func TestShouldRefreshResult_RefreshingInProgress(t *testing.T) {
 	homeDir := setupTempHomeDir(t)
 	c := &usageCacheData{
 		FiveHour:        10.0,
-		FetchedAt:       time.Now().Add(-2 * time.Minute),
+		FetchedAt:       time.Now().Add(-3 * time.Minute),
 		RefreshingSince: time.Now().Add(-5 * time.Second), // recent
 	}
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: should NOT refresh, use expired cache
 	assert.False(t, shouldRefresh)
@@ -1302,13 +1327,13 @@ func TestShouldRefreshResult_RefreshingCrashed(t *testing.T) {
 	homeDir := setupTempHomeDir(t)
 	c := &usageCacheData{
 		FiveHour:        10.0,
-		FetchedAt:       time.Now().Add(-2 * time.Minute),
+		FetchedAt:       time.Now().Add(-3 * time.Minute),
 		RefreshingSince: time.Now().Add(-15 * time.Second), // crashed
 	}
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult()
+	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: refreshing crashed → reset and trigger refresh
 	assert.False(t, isBackoff)
@@ -1327,7 +1352,7 @@ func TestShouldRefreshResult_RefreshMarkingWriteFail(t *testing.T) {
 	// Write expired cache data directly
 	c := &usageCacheData{
 		FiveHour:  10.0,
-		FetchedAt: time.Now().Add(-2 * time.Minute),
+		FetchedAt: time.Now().Add(-3 * time.Minute),
 	}
 	data, _ := json.Marshal(c)
 	require.NoError(t, os.WriteFile(cachePath, data, 0644))
@@ -1387,7 +1412,7 @@ func TestShouldRefreshResult_RefreshMarkingWriteFail(t *testing.T) {
 		_ = os.WriteFile(cachePath, d, 0644)
 	}()
 
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: coordination detected (another process marked refresh earlier)
 	// OR shouldRefresh=true if our write won the race (both are valid outcomes)
@@ -1416,7 +1441,7 @@ func TestShouldRefreshResult_RateLimitedWithRefreshingInProgress(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult()
+	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
 
 	// Assert: refreshing in progress with rate-limit + last good data → serve last good
 	// isBackoff is false because RetryAfterUntil was zero (backoff not active)
@@ -1446,7 +1471,7 @@ func TestWriteUsageCache_DirNotExists(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify file was written
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 42.0, got.FiveHour, 0.001)
 }
@@ -1491,7 +1516,7 @@ func TestWriteUsageCache_TargetIsDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		// Windows: os.Remove removes the empty directory, rename succeeds
 		if err == nil {
-			got := readUsageCache()
+			got := readUsageCache("anthropic", "")
 			if got != nil {
 				assert.InDelta(t, 99.0, got.FiveHour, 0.001)
 			}
@@ -1513,7 +1538,7 @@ func TestWriteUsageCache_RenameFailsCleansTemp(t *testing.T) {
 	err := writeUsageCache(cache)
 	require.NoError(t, err)
 
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 77.0, got.FiveHour, 0.001)
 }
@@ -1619,7 +1644,7 @@ func TestGetSubscriptionUsage_NilClaudeAiOauth(t *testing.T) {
 	creds := `{"claudeAiOauth": null}`
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte(creds), 0644))
 
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 	assert.Nil(t, result)
 }
 
@@ -1651,14 +1676,14 @@ func TestGetSubscriptionUsage_SuccessWithOldData(t *testing.T) {
 		}`))
 	})
 
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	require.NotNil(t, result)
 	assert.InDelta(t, 72.0, result.FiveHour, 0.001)
 	assert.InDelta(t, 45.0, result.SevenDay, 0.001)
 
 	// Verify rate-limit count was reset
-	cached := readUsageCache()
+	cached := readUsageCache("anthropic", "")
 	require.NotNil(t, cached)
 	assert.Equal(t, 0, cached.RateLimitedCount, "rate limit count should reset on success")
 	assert.Empty(t, cached.APIError)
@@ -1680,7 +1705,7 @@ func TestGetSubscriptionUsage_BackoffServesLastGoodData(t *testing.T) {
 	}
 	writeTestCacheFile(t, homeDir, c)
 
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	require.NotNil(t, result, "backoff should serve last good data")
 	assert.InDelta(t, 60.0, result.FiveHour, 0.001)
@@ -1701,7 +1726,7 @@ func TestGetSubscriptionUsage_APIServerDown_WritesFailureCache(t *testing.T) {
 	oldCache := &usageCacheData{
 		FiveHour:  10.0,
 		SevenDay:  5.0,
-		FetchedAt: time.Now().Add(-2 * time.Minute),
+		FetchedAt: time.Now().Add(-3 * time.Minute),
 	}
 	writeTestCacheFile(t, homeDir, oldCache)
 
@@ -1709,7 +1734,7 @@ func TestGetSubscriptionUsage_APIServerDown_WritesFailureCache(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	result := getSubscriptionUsage()
+	result := getSubscriptionUsage(nil)
 
 	// Should return old data from fallback
 	require.NotNil(t, result)
@@ -1808,7 +1833,7 @@ func TestWriteUsageCache_ClaudeDirNotExists(t *testing.T) {
 
 	// Assert: MkdirAll creates .claude/ and write succeeds
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 55.0, got.FiveHour, 0.001)
 }
@@ -1840,7 +1865,7 @@ func TestWriteUsageCache_WindowsBranch(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 33.0, got.FiveHour, 0.001)
 }
@@ -1869,7 +1894,7 @@ func TestSyncFile_OpenError(t *testing.T) {
 
 	// Assert: writeUsageCache ignores syncFileFn error
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 }
 
@@ -1885,7 +1910,7 @@ func TestReadUsageCache_CorruptJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(cachePath, []byte("{corrupt!!!"), 0644))
 
 	// Act
-	result := readUsageCache()
+	result := readUsageCache("anthropic", "")
 
 	// Assert
 	assert.Nil(t, result, "corrupt JSON should return nil")
@@ -1908,7 +1933,7 @@ func TestWriteUsageCache_NonWindowsBranch(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 77.0, got.FiveHour, 0.001)
 }
@@ -2067,7 +2092,7 @@ func TestReadUsageCache_HomeDirErrorViaFn(t *testing.T) {
 	defer func() { getHomeDirFn = oldFn }()
 
 	// Act
-	result := readUsageCache()
+	result := readUsageCache("anthropic", "")
 
 	// Assert
 	assert.Nil(t, result, "should return nil when home dir unavailable")
@@ -2091,7 +2116,12 @@ func TestWriteUsageCache_HomeDirErrorViaFn(t *testing.T) {
 
 func TestGetSubscriptionQuota_NilFnFallsThrough(t *testing.T) {
 	// Arrange — getSubscriptionUsageFn = nil forces real getSubscriptionUsage() path.
-	// With getHomeDirFn returning error, getSubscriptionUsage() returns nil quickly.
+	// Clear env vars so detectProvider() returns providerAnthropic (not GLM),
+	// then getHomeDirFn returning error makes the Anthropic path fail early.
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_API_BASE_URL", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+
 	oldUsageFn := getSubscriptionUsageFn
 	getSubscriptionUsageFn = nil
 	defer func() { getSubscriptionUsageFn = oldUsageFn }()
@@ -2125,7 +2155,7 @@ func TestSyncFile_NilFn(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache()
+	got := readUsageCache("anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 2.0, got.FiveHour, 0.001)
 }

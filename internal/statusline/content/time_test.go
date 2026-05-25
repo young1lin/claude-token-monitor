@@ -99,6 +99,72 @@ func TestParseRetryAfterHeader_FutureHTTPDate(t *testing.T) {
 	assert.Less(t, result, 70)
 }
 
+// Table-driven test for quotaPercentColor.
+//
+// Boundary cases assert each tier's lower edge AND a value safely inside the
+// tier so a future off-by-one (e.g. ">=80" vs ">80") fails loudly.
+// Semantics: for quota lines, "more used" === "less budget" → red kicks in
+// at 80% and below that we go yellow / cyan / green / bright-green. This is
+// the OPPOSITE direction from the context bar in model.go on purpose; the
+// two lines mean different things to the user.
+func TestQuotaPercentColor(t *testing.T) {
+	tests := []struct {
+		name string
+		pct  float64
+		want string
+	}{
+		{"negative is uncoloured (defensive)", -1, ""},
+		{"zero is bright green (plenty of headroom)", 0, "\x1b[1;92m"},
+		{"19.9 is bright green", 19.9, "\x1b[1;92m"},
+		{"20 enters green tier (normal usage)", 20, "\x1b[1;32m"},
+		{"39.9 is green", 39.9, "\x1b[1;32m"},
+		{"40 enters cyan tier (past halfway)", 40, "\x1b[1;36m"},
+		{"59.9 is cyan", 59.9, "\x1b[1;36m"},
+		{"60 enters yellow tier (heads-up)", 60, "\x1b[1;33m"},
+		{"79.9 is yellow", 79.9, "\x1b[1;33m"},
+		{"80 enters red tier (out-of-budget warning)", 80, "\x1b[1;31m"},
+		{"100 stays red", 100, "\x1b[1;31m"},
+		{"125 stays red (overcap defensive)", 125, "\x1b[1;31m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, quotaPercentColor(tt.pct))
+		})
+	}
+}
+
+// colouredPercent must always emit a reset code so downstream text is not
+// accidentally coloured. This is the invariant the renderer depends on.
+func TestColouredPercentAlwaysClosesAnsi(t *testing.T) {
+	for _, pct := range []float64{0, 15, 25, 45, 65, 85, 100} {
+		got := colouredPercent(pct)
+		assert.True(t, len(got) > 0, "non-empty output for %v", pct)
+		assert.Contains(t, got, "\x1b[0m", "reset code missing for %v", pct)
+	}
+}
+
+// formatPercentWindow with a coloured percentage MUST keep the label and
+// countdown OUTSIDE the colour span so layout code that strips ANSI does
+// not lose "5h" / "↻ 2h33m".
+func TestFormatPercentWindow_ColoursOnlyTheNumber(t *testing.T) {
+	now := time.Date(2026, 5, 25, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(2*time.Hour + 33*time.Minute)
+
+	got := formatPercentWindow(28, "5h", reset, now)
+
+	// Expect: "<green>28%<reset> 5h ↻ 2h33m"
+	assert.Equal(t, "\x1b[1;32m28%\x1b[0m 5h ↻ 2h33m", got)
+
+	// Above 80% → red instead, same surrounding text.
+	red := formatPercentWindow(85, "5h", reset, now)
+	assert.Equal(t, "\x1b[1;31m85%\x1b[0m 5h ↻ 2h33m", red)
+
+	// No reset time → trailing "↻" must not appear, percentage still coloured.
+	noReset := formatPercentWindow(15, "7d", time.Time{}, now)
+	assert.Equal(t, "\x1b[1;92m15%\x1b[0m 7d", noReset)
+}
+
 // Test for getLocalTimeZoneName
 func TestGetLocalTimeZoneName(t *testing.T) {
 	// Save original TZ
@@ -120,40 +186,6 @@ func TestGetLocalTimeZoneName(t *testing.T) {
 			result := getLocalTimeZoneName()
 			// Just verify it's not empty
 			assert.NotEmpty(t, result)
-		})
-	}
-}
-
-// Test for isUsingCustomApiEndpoint
-func TestIsUsingCustomApiEndpoint(t *testing.T) {
-	// Save original env vars
-	originalBaseURL := os.Getenv("ANTHROPIC_BASE_URL")
-	originalApiBaseURL := os.Getenv("ANTHROPIC_API_BASE_URL")
-	defer func() {
-		os.Setenv("ANTHROPIC_BASE_URL", originalBaseURL)
-		os.Setenv("ANTHROPIC_API_BASE_URL", originalApiBaseURL)
-	}()
-
-	tests := []struct {
-		name           string
-		baseURL        string
-		apiBaseURL     string
-		expectedCustom bool
-	}{
-		{"No custom endpoint", "", "", false},
-		{"Default Anthropic API", "https://api.anthropic.com", "", false},
-		{"Custom endpoint", "https://custom.api.com", "", true},
-		{"Custom endpoint with spaces", "  https://custom.api.com  ", "", true},
-		{"API_BASE_URL custom", "", "https://custom.api.com", true},
-		{"API_BASE_URL default", "", "https://api.anthropic.com/v1", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("ANTHROPIC_BASE_URL", tt.baseURL)
-			os.Setenv("ANTHROPIC_API_BASE_URL", tt.apiBaseURL)
-			result := isUsingCustomApiEndpoint()
-			assert.Equal(t, tt.expectedCustom, result)
 		})
 	}
 }

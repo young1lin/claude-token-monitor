@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -948,16 +949,25 @@ func TestAnalyzeTranscriptEntries_MultipleToolResultsSameID(t *testing.T) {
 // RealCommandRunner.Run – integration test
 // ---------------------------------------------------------------------------
 
+func echoTestCommand(text string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd", []string{"/c", "echo", text}
+	}
+	return "echo", []string{text}
+}
+
 func TestRealCommandRunner_EchoCommand(t *testing.T) {
 	runner := &RealCommandRunner{}
-	out, err := runner.Run("", "echo", "hello")
+	name, args := echoTestCommand("hello")
+	out, err := runner.Run("", name, args...)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "hello")
 }
 
 func TestRealCommandRunner_WithDir(t *testing.T) {
 	runner := &RealCommandRunner{}
-	out, err := runner.Run(t.TempDir(), "echo", "test")
+	name, args := echoTestCommand("test")
+	out, err := runner.Run(t.TempDir(), name, args...)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "test")
 }
@@ -970,7 +980,8 @@ func TestRealCommandRunner_NonexistentCommand(t *testing.T) {
 
 func TestRealCommandRunner_EmptyDir(t *testing.T) {
 	runner := &RealCommandRunner{}
-	out, err := runner.Run("", "echo", "no-dir")
+	name, args := echoTestCommand("no-dir")
+	out, err := runner.Run("", name, args...)
 	require.NoError(t, err)
 	assert.Contains(t, string(out), "no-dir")
 }

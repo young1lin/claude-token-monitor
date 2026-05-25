@@ -136,4 +136,3 @@ func TestResolve_EnvValuePreservedVerbatim(t *testing.T) {
 		})
 	}
 }
-

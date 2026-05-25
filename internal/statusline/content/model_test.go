@@ -196,6 +196,85 @@ func TestTokenInfoCollector_Collect(t *testing.T) {
 	}
 }
 
+// TestContextPercentColor pins the 4-tier mapping for the context-window
+// scale. These thresholds intentionally differ from the quota scale (see
+// quotaPercentColor): for context the percentage rising IS the warning, so
+// red kicks in at 60% to give the user a few turns before AutoCompact
+// triggers around 75%. Do NOT unify with quotaPercentColor — the semantics
+// are inverted.
+func TestContextPercentColor(t *testing.T) {
+	tests := []struct {
+		name string
+		pct  float64
+		want string
+	}{
+		{"0% is green", 0, "\x1b[1;32m"},
+		{"19.9% is green", 19.9, "\x1b[1;32m"},
+		{"20% enters cyan", 20, "\x1b[1;36m"},
+		{"39.9% is cyan", 39.9, "\x1b[1;36m"},
+		{"40% enters yellow", 40, "\x1b[1;33m"},
+		{"59.9% is yellow", 59.9, "\x1b[1;33m"},
+		{"60% enters red", 60, "\x1b[1;31m"},
+		{"100% stays red", 100, "\x1b[1;31m"},
+		{"overcap stays red", 150, "\x1b[1;31m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, contextPercentColor(tt.pct))
+		})
+	}
+}
+
+// TokenInfo must colour the percentage in the same tier as the bar, while
+// leaving the absolute token counts plain so they remain easy to read.
+func TestTokenInfoCollector_PercentColoured(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     *StatusLineInput
+		wantColor string
+		wantPct   string
+	}{
+		{
+			name:      "12.9% lands in green tier",
+			input:     makeStatusInput(129000, 0, 100, 1000000),
+			wantColor: "\x1b[1;32m",
+			wantPct:   "12.9%",
+		},
+		{
+			name:      "30% lands in cyan tier",
+			input:     makeStatusInput(60000, 0, 0, 200000),
+			wantColor: "\x1b[1;36m",
+			wantPct:   "30.0%",
+		},
+		{
+			name:      "50% lands in yellow tier",
+			input:     makeStatusInput(100000, 0, 0, 200000),
+			wantColor: "\x1b[1;33m",
+			wantPct:   "50.0%",
+		},
+		{
+			name:      "75% lands in red tier",
+			input:     makeStatusInput(150000, 0, 0, 200000),
+			wantColor: "\x1b[1;31m",
+			wantPct:   "75.0%",
+		},
+	}
+
+	collector := NewTokenInfoCollector()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := collector.Collect(tt.input, nil)
+			require.NoError(t, err)
+			// The percentage must be wrapped exactly: "(\x1b[...m12.9%\x1b[0m)".
+			assert.Contains(t, got, "("+tt.wantColor+tt.wantPct+"\x1b[0m)")
+			// The absolute count chunk must NOT carry ANSI codes — only the
+			// percent does.
+			countChunk := got[:strings.Index(got, " (")]
+			assert.NotContains(t, countChunk, "\x1b[", "absolute count must stay plain")
+		})
+	}
+}
+
 func TestTokenInfoCollector_Collect_InvalidInput(t *testing.T) {
 	collector := NewTokenInfoCollector()
 
@@ -249,12 +328,12 @@ func TestSessionTotalCollector_Collect(t *testing.T) {
 	collector := NewSessionTotalCollector()
 
 	tests := []struct {
-		name        string
-		totalIn     int
-		totalOut    int
-		costUSD     float64
-		want        string
-		wantEmpty   bool
+		name      string
+		totalIn   int
+		totalOut  int
+		costUSD   float64
+		want      string
+		wantEmpty bool
 	}{
 		{
 			name:     "typical session",

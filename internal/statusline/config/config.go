@@ -38,13 +38,12 @@ type NetworkConfig struct {
 
 // CacheConfig controls caching behavior.
 //
-// UsageTTLSeconds is the time-to-live, in seconds, for the OAuth-usage cache
-// (~/.claude/.usage-cache.json). Within the TTL window the statusline serves
-// cached data and skips the api.anthropic.com HTTP call, so a larger value
-// means fewer requests. Failure-path and 429 backoff timings are deliberately
-// not configurable.
+// UsageTTLSeconds is the time-to-live, in seconds, for successful usage/quota
+// cache entries. Within the TTL window the statusline serves cached data and
+// skips the provider HTTP call, so a larger value means fewer requests.
+// Failure-path and 429 backoff timings are deliberately not configurable.
 type CacheConfig struct {
-	UsageTTLSeconds int `yaml:"usageTTLSeconds"` // OAuth-usage cache TTL (default: 60)
+	UsageTTLSeconds int `yaml:"usageTTLSeconds"` // usage/quota cache TTL (default: 90)
 }
 
 // DisplayConfig controls what content is displayed
@@ -78,6 +77,8 @@ type ComposerConfig struct {
 // Both .yml and .yaml are first-class — .yml is checked first so that users
 // who prefer the shorter extension hit a fast path.
 var configFileNames = []string{"statusline.yml", "statusline.yaml"}
+
+const defaultUsageCacheTTLSecs = 90
 
 // Load loads configuration from file with priority:
 //  1. Project-level: <projectDir>/.claude/statusline.yml then .yaml
@@ -163,7 +164,7 @@ func DefaultConfig() *Config {
 			Use:       nil, // No overrides
 		},
 		Cache: CacheConfig{
-			UsageTTLSeconds: 60, // Default 60s — one OAuth-usage request per minute
+			UsageTTLSeconds: defaultUsageCacheTTLSecs, // Default 90s — at most 40 success-path usage requests/hour
 		},
 		Network: NetworkConfig{
 			ClaudeAPIProxy: "", // Default: no proxy
@@ -255,12 +256,12 @@ func (c *Config) HasCustomComposers() bool {
 	return len(c.Content.Composers) > 0
 }
 
-// GetUsageCacheTTL returns the OAuth-usage cache TTL duration.
-// Non-positive YAML values fall back to the 60s default so a misconfigured
+// GetUsageCacheTTL returns the usage/quota success cache TTL duration.
+// Non-positive YAML values fall back to the 90s default so a misconfigured
 // file can never accidentally hammer api.anthropic.com on every refresh.
 func (c *Config) GetUsageCacheTTL() time.Duration {
 	if c.Cache.UsageTTLSeconds <= 0 {
-		return 60 * time.Second
+		return time.Duration(defaultUsageCacheTTLSecs) * time.Second
 	}
 	return time.Duration(c.Cache.UsageTTLSeconds) * time.Second
 }
