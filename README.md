@@ -12,7 +12,7 @@
 
 Claude Code 实时 Token 使用状态栏插件。
 
-![](./images/claude-code-monitor.png)
+![](./images/claude-code-monitor-team.png)
 
 ## 安装
 
@@ -73,6 +73,8 @@ content:
 当 `ANTHROPIC_BASE_URL` 指向 `api.z.ai`、`open.bigmodel.cn` 或 `dev.bigmodel.cn` 时，订阅配额行会改用 GLM monitor quota 接口。输出会显示套餐标签（`[Max]` / `[Pro]` / `[Lite]`）、5h / 7d token 窗口，以及 GLM Coding Plan 的 MCP 月度调用量（如 `MCP 380/4k`）。Anthropic 账号没有 MCP 配额，不会显示 MCP 段。
 
 GLM 缓存按 `provider + ANTHROPIC_AUTH_TOKEN` 指纹分文件保存；同一机器上切换 Pro / Lite 或不同 Z.ai / 智谱账号时，不会互相复用旧 quota。遇到 429 会优先遵守服务端 `Retry-After`。
+
+![](./images/claude-code-monitor-glm.png)
 
 ## 扩展开发
 
@@ -191,6 +193,22 @@ Claude Code 通过 stdin 发送 JSON 数据：
 | `📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h` | 订阅配额：套餐、5h / 7d 用量百分比、距离下次重置的倒计时；GLM/Z.ai 账号会额外显示 MCP 月度调用量 |
 | `💾 294.0 MB` | 当前 statusline 进程的常驻内存 |
 | `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | 本会话工具调用次数，`✓` 成功 / `✖` 失败 |
+
+#### 订阅配额展示对比
+
+不同套餐 / provider 在配额行的展示差异：
+
+**Anthropic Team** —— `[Team] 6% 5h ↻ 4h51m · 18% 7d ↻ 6d10h`
+
+![](./images/claude-code-monitor-team.png)
+
+**Anthropic Pro** —— `[Pro] 4% 5h ↻ 4h49m · 56% 7d ↻ 11h49m`
+
+![](./images/claude-code-monitor-pro.png)
+
+**GLM Coding Plan（Max）** —— `[Max] 1% 5h ↻ 3h23m · MCP 42/4k`，唯一带 MCP 月度调用量
+
+![](./images/claude-code-monitor-glm.png)
 
 ### Why Hot Reload Works
 

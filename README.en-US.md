@@ -2,7 +2,7 @@
 
 Real-time token usage statusline for Claude Code.
 
-![](./images/claude-code-monitor.png)
+![](./images/claude-code-monitor-team.png)
 
 ## Installation
 
@@ -65,6 +65,8 @@ content:
 When `ANTHROPIC_BASE_URL` points to `api.z.ai`, `open.bigmodel.cn`, or `dev.bigmodel.cn`, the subscription quota line switches to the GLM monitor quota API. It shows the plan tag (`[Max]` / `[Pro]` / `[Lite]`), 5h / 7d token windows, and the GLM Coding Plan MCP monthly call budget, for example `MCP 380/4k`. Anthropic accounts do not have an MCP quota, so no MCP segment is shown there.
 
 GLM cache files are separated by `provider + ANTHROPIC_AUTH_TOKEN` fingerprint, so switching between Pro / Lite or different Z.ai / Zhipu accounts on the same machine does not reuse stale quota from another account. On HTTP 429, the plugin honors the server's `Retry-After` value first.
+
+![](./images/claude-code-monitor-glm.png)
 
 ## Extending
 
@@ -183,6 +185,22 @@ The plugin writes one or more lines of plain text (with optional ANSI color code
 | `📊 [Team] 52% 5h ↻ 1h25m · 17% 7d ↻ 6d14h` | Subscription quota: plan, 5h / 7d utilization, countdowns to reset; GLM/Z.ai accounts additionally show the MCP monthly call budget |
 | `💾 294.0 MB` | Resident memory of the statusline process |
 | `✓ Read(9) ✓ Grep(5) ✖ Bash(1)` | Tool calls this session — `✓` succeeded, `✖` failed |
+
+#### Subscription Quota — Side-by-Side
+
+How the quota row differs across plans / providers:
+
+**Anthropic Team** — `[Team] 6% 5h ↻ 4h51m · 18% 7d ↻ 6d10h`
+
+![](./images/claude-code-monitor-team.png)
+
+**Anthropic Pro** — `[Pro] 4% 5h ↻ 4h49m · 56% 7d ↻ 11h49m`
+
+![](./images/claude-code-monitor-pro.png)
+
+**GLM Coding Plan (Max)** — `[Max] 1% 5h ↻ 3h23m · MCP 42/4k`, the only one that surfaces an MCP monthly call budget
+
+![](./images/claude-code-monitor-glm.png)
 
 ### Why Hot Reload Works
 
