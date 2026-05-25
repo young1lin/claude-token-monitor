@@ -1,5 +1,9 @@
 # StatusLine Debug Mode
 
+## Version
+
+Current version is tracked in [.claude/context/VERSION.md](.claude/context/VERSION.md). When bumping version, update all files listed there.
+
 ## Usage
 
 Add `--debug` flag to enable debug logging in `.claude/settings.local.json`:
