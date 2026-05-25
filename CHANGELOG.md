@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-05-25
+
+### Added
+- **Multi-account support via `CLAUDE_CONFIG_DIR`.** The statusline now honors the
+  `CLAUDE_CONFIG_DIR` environment variable to locate the correct `.claude/` data
+  directory for users running multiple Claude Code accounts. Settings, memory
+  files, and transcript paths all resolve through the configured directory.
+  New package `internal/claudedir` centralizes the resolution logic.
+- Tests for multi-account config resolution, memory scanning, and skills
+  discovery across custom config directories.
+
+### Changed
+- Updated README (zh-CN & en-US) to document proxy/cache configuration, grid
+  layout format, and debug mode usage.
+
 ## [0.2.2] - 2026-05-17
 
 ### Changed
