@@ -70,7 +70,7 @@ content:
 
 ### GLM / Z.ai 配额显示
 
-当 `ANTHROPIC_BASE_URL` 指向 `api.z.ai`、`open.bigmodel.cn` 或 `dev.bigmodel.cn` 时，订阅配额行会改用 GLM monitor quota 接口。输出会显示套餐标签（`[Max]` / `[Pro]` / `[Lite]`）、5h / 7d token 窗口，以及 GLM Coding Plan 的 MCP 月度调用量（如 `MCP 380/4k`）。Anthropic 账号没有 MCP 配额，不会显示 MCP 段。
+当 `ANTHROPIC_BASE_URL` 指向 `api.z.ai`、`open.bigmodel.cn` 或 `dev.bigmodel.cn` 时，订阅配额行会改用 GLM monitor quota 接口。输出会显示套餐标签（`[Max]` / `[Pro]` / `[Lite]`）、5h / 7d token 窗口，以及 GLM Coding Plan 的 MCP 月度调用量（如 `🧩 380/4k`，🧩 代表 MCP 这类可插拔工具）。Anthropic 账号没有 MCP 配额，不会显示 🧩 段。
 
 GLM 缓存按 `provider + ANTHROPIC_AUTH_TOKEN` 指纹分文件保存；同一机器上切换 Pro / Lite 或不同 Z.ai / 智谱账号时，不会互相复用旧 quota。遇到 429 会优先遵守服务端 `Retry-After`。
 
@@ -206,7 +206,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 ![](./images/claude-code-monitor-pro.png)
 
-**GLM Coding Plan（Max）** —— `[Max] 1% 5h ↻ 3h23m · MCP 42/4k`，唯一带 MCP 月度调用量
+**GLM Coding Plan（Max）** —— `[Max] 1% 5h ↻ 3h23m · 🧩 42/4k`，唯一带 MCP 月度调用量（🧩 表示 MCP 工具调用）
 
 ![](./images/claude-code-monitor-glm.png)
 

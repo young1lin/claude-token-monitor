@@ -383,7 +383,7 @@ func TestFormatMCPWindow(t *testing.T) {
 
 	t.Run("compacts whole thousands with k suffix", func(t *testing.T) {
 		m := &MCPWindow{Used: 42, Limit: 4000, Percent: 1.05}
-		assert.Equal(t, "MCP 42/4k", formatMCPWindow(m, fixed))
+		assert.Equal(t, "🧩 42/4k", formatMCPWindow(m, fixed))
 	})
 
 	t.Run("monthly reset is intentionally not rendered", func(t *testing.T) {
@@ -393,13 +393,13 @@ func TestFormatMCPWindow(t *testing.T) {
 			Limit:   4000,
 			ResetAt: fixed.Add(21 * 24 * time.Hour),
 		}
-		assert.Equal(t, "MCP 42/4k", formatMCPWindow(m, fixed))
+		assert.Equal(t, "🧩 42/4k", formatMCPWindow(m, fixed))
 	})
 
 	t.Run("falls back to percentage when limit unknown", func(t *testing.T) {
 		// 8% falls in the lowest tier so it's wrapped in bright green.
 		m := &MCPWindow{Percent: 7.5}
-		assert.Equal(t, "MCP \x1b[1;92m8%\x1b[0m", formatMCPWindow(m, fixed))
+		assert.Equal(t, "🧩 \x1b[1;92m8%\x1b[0m", formatMCPWindow(m, fixed))
 	})
 }
 
@@ -457,7 +457,7 @@ func TestGetSubscriptionQuota_GLMMaxPlanLayout(t *testing.T) {
 	// Compact format: [Plan] prefix (title-cased), MCP uses k suffix, MCP
 	// reset hidden (monthly countdown is not actionable on a live statusline).
 	// 1% sits in the bright-green tier.
-	assert.Equal(t, "📊 [Max] \x1b[1;92m1%\x1b[0m 5h ↻ 4h7m · MCP 42/4k", out)
+	assert.Equal(t, "📊 [Max] \x1b[1;92m1%\x1b[0m 5h ↻ 4h7m · 🧩 42/4k", out)
 	// Max plan has no weekly window — must NOT render the 7d segment.
 	assert.NotContains(t, out, "7d")
 	// Plan label is title-cased ("Max"), never the raw uppercase form.
@@ -493,7 +493,7 @@ func TestGetSubscriptionQuota_GLMProPlanLayoutIncludesWeekly(t *testing.T) {
 	// 22% → green tier; 50% → cyan tier.
 	assert.Contains(t, out, "\x1b[1;32m22%\x1b[0m 5h ↻ 4h32m")
 	assert.Contains(t, out, "\x1b[1;36m50%\x1b[0m 7d ↻ 3d4h")
-	assert.Contains(t, out, "MCP 380/4k")
+	assert.Contains(t, out, "🧩 380/4k")
 }
 
 func TestGetSubscriptionQuota_AnthropicLayoutWithPlanLabel(t *testing.T) {
@@ -546,7 +546,7 @@ func TestGetSubscriptionQuota_APIUserNoPlanLabel(t *testing.T) {
 	out := getSubscriptionQuota(&StatusLineInput{})
 
 	// 12% → bright-green tier; 0% → bright-green tier.
-	assert.Equal(t, "📊 \x1b[1;92m12%\x1b[0m 5h ↻ 2h0m · \x1b[1;92m0%\x1b[0m 7d", out)
+	assert.Equal(t, "📊 \x1b[1;92m12%\x1b[0m 5h ↻ 2h0m · \x1b[1;92m0%\x1b[0m 7d ↻ now", out)
 	assert.NotContains(t, out, "[]", "empty PlanLevel must not produce empty brackets")
 }
 
@@ -978,4 +978,104 @@ func TestGetGLMUsage_TwoAccountsOnSameProviderHaveIsolatedCaches(t *testing.T) {
 	require.NotNil(t, gotARepeat, "cached A data must still be readable after writing B")
 	assert.Equal(t, fpA, gotARepeat.AccountKey, "must read account A's cache, not B's")
 	assert.Equal(t, "pro", gotARepeat.PlanLevel, "account A's plan (Pro) must be preserved")
+}
+
+// ---------------------------------------------------------------------------
+// glmPlanWindows + getSubscriptionQuota: nil-quota / fresh-window rendering
+// ---------------------------------------------------------------------------
+
+// TestGLMPlanWindows pins the plan → (has5h, has7d) mapping. Without these
+// flags, the 5h segment for a GLM Max user disappears every time the window
+// resets (API returns percentage=0 with nextResetTime=0 until a token is
+// spent in the new window).
+func TestGLMPlanWindows(t *testing.T) {
+	cases := []struct {
+		plan    string
+		want5h  bool
+		want7d  bool
+	}{
+		{"max", true, false},
+		{"Max", true, false},     // case-insensitive
+		{"  MAX  ", true, false}, // trimmed
+		{"pro", true, true},
+		{"Pro", true, true},
+		{"lite", true, true},
+		{"Lite", true, true},
+		{"", false, false},        // unknown / missing
+		{"enterprise", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.plan, func(t *testing.T) {
+			got5h, got7d := glmPlanWindows(tc.plan)
+			assert.Equal(t, tc.want5h, got5h)
+			assert.Equal(t, tc.want7d, got7d)
+		})
+	}
+}
+
+// TestGetSubscriptionQuota_GLMMax_FreshWindowStillShows5h is the direct
+// regression for the BUG the user reported: cache says five_hour=0 with a
+// zero reset_at (because the API returned nextResetTime=0 right after a
+// reset), and previously the 5h segment vanished — leaving just
+// "📊 [Max] 🧩 42/4k". With glmPlanWindows in place, the 5h line stays
+// visible as "0% 5h ↻ now".
+func TestGetSubscriptionQuota_GLMMax_FreshWindowStillShows5h(t *testing.T) {
+	canned := &UsageData{
+		Provider:  "glm-zhipu",
+		PlanLevel: "max",
+		FiveHour:  0,
+		// FiveHourResetAt left at zero — this is the post-reset state.
+		MCP: &MCPWindow{Used: 42, Limit: 4000, Percent: 1},
+	}
+	oldFn := getSubscriptionUsageFn
+	getSubscriptionUsageFn = func() *UsageData { return canned }
+	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
+
+	out := getSubscriptionQuota(&StatusLineInput{})
+
+	// Must include the 5h segment with "↻ now" countdown.
+	assert.Contains(t, out, "5h ↻ now", "5h segment must stay visible during a fresh window")
+	// Must NOT include the 7d segment (Max has no weekly window).
+	assert.NotContains(t, out, "7d", "Max plan has no 7d window — must not be synthesized")
+	// MCP still renders.
+	assert.Contains(t, out, "🧩 42/4k")
+}
+
+// TestGetSubscriptionQuota_GLMPro_FreshWindowStillShows5hAnd7d covers the
+// Pro variant where both 5h and 7d should stay visible across a reset.
+func TestGetSubscriptionQuota_GLMPro_FreshWindowStillShows5hAnd7d(t *testing.T) {
+	canned := &UsageData{
+		Provider:  "glm-zhipu",
+		PlanLevel: "pro",
+		// Both windows freshly reset.
+	}
+	oldFn := getSubscriptionUsageFn
+	getSubscriptionUsageFn = func() *UsageData { return canned }
+	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
+
+	out := getSubscriptionQuota(&StatusLineInput{})
+
+	assert.Contains(t, out, "5h ↻ now")
+	assert.Contains(t, out, "7d ↻ now")
+}
+
+// TestGetSubscriptionQuota_GLMUnknownPlan_KeepsOldHideBehaviour pins that
+// the fix is plan-level-gated: an empty PlanLevel falls back to the prior
+// "render only when there's data" behaviour, so we don't synthesize ghost
+// segments for MCP-only / API-key accounts we know nothing about.
+func TestGetSubscriptionQuota_GLMUnknownPlan_KeepsOldHideBehaviour(t *testing.T) {
+	canned := &UsageData{
+		Provider: "glm-zhipu",
+		// PlanLevel empty, no live data, MCP only.
+		MCP: &MCPWindow{Used: 1, Limit: 100, Percent: 1},
+	}
+	oldFn := getSubscriptionUsageFn
+	getSubscriptionUsageFn = func() *UsageData { return canned }
+	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
+
+	out := getSubscriptionQuota(&StatusLineInput{})
+
+	assert.NotContains(t, out, "5h", "unknown plan must not synthesize a 5h segment")
+	assert.NotContains(t, out, "7d", "unknown plan must not synthesize a 7d segment")
+	assert.Contains(t, out, "🧩 1/100")
 }

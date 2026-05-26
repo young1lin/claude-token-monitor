@@ -395,9 +395,10 @@ func formatResetCountdown(d time.Duration) string {
 //
 //   - GLM (glm-zhipu / glm-zai): renders only the windows actually present
 //     on the plan, plus an MCP segment when applicable. MCP counts are
-//     compacted with k/M suffixes:
-//     📊 [Max] 1% 5h ↻ 4h7m · MCP 42/4k
-//     📊 [Lite] 22% 5h ↻ 4h32m · 50% 7d ↻ 3d4h · MCP 380/4k
+//     compacted with k/M suffixes; the 🧩 glyph stands in for the literal
+//     "MCP " text (think of MCP servers as pluggable tools):
+//     📊 [Max] 1% 5h ↻ 4h7m · 🧩 42/4k
+//     📊 [Lite] 22% 5h ↻ 4h32m · 50% 7d ↻ 3d4h · 🧩 380/4k
 //
 // PlanLevel is rendered as a bracketed prefix (matching the existing
 // "[glm-5.1]" model tag style) and is followed by a single space — NOT a
@@ -419,18 +420,27 @@ func getSubscriptionQuota(input *StatusLineInput) string {
 	// Empty provider means "written by pre-multiprovider code" or "Anthropic
 	// path didn't bother tagging itself"; either way render the legacy shape.
 	isAnthropic := usage.Provider == "" || usage.Provider == "anthropic"
+	// For GLM, plan-level metadata tells us which windows the user is
+	// supposed to have — without it, the 5h segment would briefly vanish
+	// right after a window resets (API returns percentage=0 with
+	// nextResetTime=0 because no token has been spent in the new window
+	// yet), which looks like a broken display. See glmPlanWindows.
+	glmHas5h, glmHas7d := false, false
+	if usage.Provider == "glm-zai" || usage.Provider == "glm-zhipu" {
+		glmHas5h, glmHas7d = glmPlanWindows(usage.PlanLevel)
+	}
 	parts := make([]string, 0, 5)
 
-	// 5h: always rendered in Anthropic mode (legacy invariant), else only
-	// when there is actual data or a known reset time.
-	if isAnthropic || usage.FiveHour > 0 || !usage.FiveHourResetAt.IsZero() {
+	// 5h: rendered when Anthropic (legacy invariant), the GLM plan is known
+	// to have a 5h window, or there's live data / a known reset time.
+	if isAnthropic || glmHas5h || usage.FiveHour > 0 || !usage.FiveHourResetAt.IsZero() {
 		parts = append(parts, formatPercentWindow(usage.FiveHour, "5h", usage.FiveHourResetAt, now))
 	}
 
-	// 7d: same rule. GLM Max accounts have no weekly window, so this is
-	// skipped; GLM Lite/Pro accounts will have unit=6,number=1 and surface
-	// here exactly like the Anthropic 7-day window.
-	if isAnthropic || usage.SevenDay > 0 || !usage.SevenDayResetAt.IsZero() {
+	// 7d: same rule. GLM Max accounts have no weekly window so glmHas7d
+	// stays false there; GLM Lite/Pro accounts will have unit=6,number=1
+	// and surface here exactly like the Anthropic 7-day window.
+	if isAnthropic || glmHas7d || usage.SevenDay > 0 || !usage.SevenDayResetAt.IsZero() {
 		parts = append(parts, formatPercentWindow(usage.SevenDay, "7d", usage.SevenDayResetAt, now))
 	}
 
@@ -505,14 +515,25 @@ func colouredPercent(pct float64) string {
 	return fmt.Sprintf("%.0f%%", pct)
 }
 
-// formatPercentWindow renders a single "X% label" or "X% label ↻ countdown"
-// segment used by both Anthropic and GLM percentage-based windows. The
-// percentage is wrapped in a 5-tier ANSI colour (see quotaPercentColor).
+// formatPercentWindow renders a single "X% label ↻ countdown" segment used
+// by both Anthropic and GLM percentage-based windows. The percentage is
+// wrapped in a 5-tier ANSI colour (see quotaPercentColor).
+//
+// A zero resetAt means "we don't have a reset timestamp yet" — typically
+// because the API briefly returns nextResetTime=0 right after a window
+// resets, before any token has been spent in the new window. We pass that
+// through to formatResetCountdown so it renders as "↻ now" rather than
+// suppressing the countdown entirely; the latter looked like a partial
+// failure (just "0% 5h" with no arrow) and matched neither the Anthropic
+// default nor what users expect to see during a fresh window.
 func formatPercentWindow(percent float64, label string, resetAt, now time.Time) string {
+	var countdown string
 	if resetAt.IsZero() {
-		return fmt.Sprintf("%s %s", colouredPercent(percent), label)
+		countdown = "now"
+	} else {
+		countdown = formatResetCountdown(resetAt.Sub(now))
 	}
-	return fmt.Sprintf("%s %s ↻ %s", colouredPercent(percent), label, formatResetCountdown(resetAt.Sub(now)))
+	return fmt.Sprintf("%s %s ↻ %s", colouredPercent(percent), label, countdown)
 }
 
 // formatMCPWindow renders the GLM Coding Plan MCP segment. MCP is
@@ -520,11 +541,15 @@ func formatPercentWindow(percent float64, label string, resetAt, now time.Time) 
 // percentage (with colour) when the absolute limit is unknown. The reset
 // countdown is suppressed because the budget rolls monthly — 21 days out is
 // not useful statusline info, and showing it just eats horizontal space.
+//
+// The 🧩 prefix evokes a USB / plug-in, since MCP servers behave like
+// pluggable tools attached to the model — it replaces the prior "MCP " text
+// to save horizontal space.
 func formatMCPWindow(m *MCPWindow, _ time.Time) string {
 	if m.Limit > 0 {
-		return fmt.Sprintf("MCP %s/%s", compactCount(m.Used), compactCount(m.Limit))
+		return fmt.Sprintf("🧩 %s/%s", compactCount(m.Used), compactCount(m.Limit))
 	}
-	return fmt.Sprintf("MCP %s", colouredPercent(m.Percent))
+	return fmt.Sprintf("🧩 %s", colouredPercent(m.Percent))
 }
 
 // compactCount formats a non-negative integer with a k/M suffix for values

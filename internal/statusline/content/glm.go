@@ -65,6 +65,33 @@ func (p providerKind) isGLM() bool {
 	return p == providerGLMZai || p == providerGLMZhipu
 }
 
+// glmPlanWindows reports which token-percent windows a given GLM plan is
+// known to have. This is plan-structural metadata, NOT live data — so we
+// can keep rendering "0% 5h" right after a window resets (when the API
+// briefly returns percentage=0 with nextResetTime=0 because no token has
+// been spent in the new window yet) instead of collapsing the segment to
+// nothing. Without this, GLM Max users see the 5h line disappear and
+// reappear every five hours, which looks like a broken display.
+//
+// Plan structure as of 2026-Q2:
+//
+//	max         → 5h only (no weekly window)
+//	pro / lite  → 5h + 7d
+//	others      → unknown; caller should fall back to the "render only if
+//	              we have data" rule
+//
+// PlanLevel is lower-cased and trimmed before matching since the API has
+// historically returned mixed-case values ("Max" vs "max" vs " MAX ").
+func glmPlanWindows(planLevel string) (hasFiveHour, hasSevenDay bool) {
+	switch strings.ToLower(strings.TrimSpace(planLevel)) {
+	case "max":
+		return true, false
+	case "pro", "lite":
+		return true, true
+	}
+	return false, false
+}
+
 // providerCacheMatches reports whether the cache entry was produced by the
 // same provider the caller is currently using. An empty Provider in the
 // cache is treated as "anthropic", which is what pre-multiprovider binaries

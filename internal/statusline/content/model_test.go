@@ -88,17 +88,17 @@ func TestTokenBarCollector_Collect(t *testing.T) {
 		{
 			name:      "0% usage",
 			input:     makeStatusInput(0, 0, 0, 200000),
-			wantColor: "\x1b[1;32m", // green
+			wantColor: "\x1b[1;92m", // bright green
 		},
 		{
 			name:      "25% usage",
 			input:     makeStatusInput(25000, 0, 25000, 200000),
-			wantColor: "\x1b[1;36m", // cyan (>=20% and <40%)
+			wantColor: "\x1b[1;32m", // green (>=20% and <40%)
 		},
 		{
 			name:      "50% usage",
 			input:     makeStatusInput(40000, 0, 60000, 200000),
-			wantColor: "\x1b[1;33m", // yellow
+			wantColor: "\x1b[1;36m", // cyan
 		},
 		{
 			name:      "75% usage",
@@ -118,7 +118,7 @@ func TestTokenBarCollector_Collect(t *testing.T) {
 		{
 			name:      "zero context window size defaults to 200K",
 			input:     makeStatusInput(10000, 0, 0, 0),
-			wantColor: "\x1b[1;32m", // green
+			wantColor: "\x1b[1;92m", // bright green
 		},
 	}
 
@@ -196,11 +196,11 @@ func TestTokenInfoCollector_Collect(t *testing.T) {
 	}
 }
 
-// TestContextPercentColor pins the 4-tier mapping for the context-window
+// TestContextPercentColor pins the 5-tier mapping for the context-window
 // scale. These thresholds intentionally differ from the quota scale (see
 // quotaPercentColor): for context the percentage rising IS the warning, so
-// red kicks in at 60% to give the user a few turns before AutoCompact
-// triggers around 75%. Do NOT unify with quotaPercentColor — the semantics
+// red kicks in at 75% to give the user a few turns before AutoCompact
+// triggers around 85%. Do NOT unify with quotaPercentColor — the semantics
 // are inverted.
 func TestContextPercentColor(t *testing.T) {
 	tests := []struct {
@@ -208,19 +208,188 @@ func TestContextPercentColor(t *testing.T) {
 		pct  float64
 		want string
 	}{
-		{"0% is green", 0, "\x1b[1;32m"},
-		{"19.9% is green", 19.9, "\x1b[1;32m"},
-		{"20% enters cyan", 20, "\x1b[1;36m"},
-		{"39.9% is cyan", 39.9, "\x1b[1;36m"},
-		{"40% enters yellow", 40, "\x1b[1;33m"},
-		{"59.9% is yellow", 59.9, "\x1b[1;33m"},
-		{"60% enters red", 60, "\x1b[1;31m"},
+		{"0% is bright green", 0, "\x1b[1;92m"},
+		{"19.9% is bright green", 19.9, "\x1b[1;92m"},
+		{"20% enters green", 20, "\x1b[1;32m"},
+		{"39.9% is green", 39.9, "\x1b[1;32m"},
+		{"40% enters cyan", 40, "\x1b[1;36m"},
+		{"59.9% is cyan", 59.9, "\x1b[1;36m"},
+		{"60% enters yellow", 60, "\x1b[1;33m"},
+		{"74.9% is yellow", 74.9, "\x1b[1;33m"},
+		{"75% enters red", 75, "\x1b[1;31m"},
 		{"100% stays red", 100, "\x1b[1;31m"},
 		{"overcap stays red", 150, "\x1b[1;31m"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, contextPercentColor(tt.pct))
+		})
+	}
+}
+
+// TestContextAbsoluteColor pins the absolute-token tiers used for extended
+// (>200K) context windows. The intent is to fire the compress-now warning
+// near 200K used regardless of the window cap, because beyond ~200K the
+// model degrades on speed and cost even when AutoCompact is far away.
+func TestContextAbsoluteColor(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens int
+		want   string
+	}{
+		{"0 tokens is green", 0, "\x1b[1;32m"},
+		{"179,999 tokens is green", 179_999, "\x1b[1;32m"},
+		{"180K enters cyan", 180_000, "\x1b[1;36m"},
+		{"199,999 stays cyan", 199_999, "\x1b[1;36m"},
+		{"200K enters yellow (compress soon)", 200_000, "\x1b[1;33m"},
+		{"249,999 stays yellow", 249_999, "\x1b[1;33m"},
+		{"250K enters red (compress NOW)", 250_000, "\x1b[1;31m"},
+		{"500K stays red", 500_000, "\x1b[1;31m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, contextAbsoluteColor(tt.tokens))
+		})
+	}
+}
+
+// TestContextColor verifies the dispatch rule: ≤200K windows use the legacy
+// percentage tiers, while >200K windows switch to the absolute-token tiers
+// so a 1M-cap user still sees a warning at ~200K used (where pct-based
+// thresholds would leave them green right up to 600K).
+func TestContextColor(t *testing.T) {
+	tests := []struct {
+		name      string
+		tokens    int
+		maxTokens int
+		want      string
+	}{
+		// ≤200K cap: percentage path
+		{"200K cap, 10K → bright green (5%)", 10_000, 200_000, "\x1b[1;92m"},
+		{"200K cap, 60K → green (30%)", 60_000, 200_000, "\x1b[1;32m"},
+		{"200K cap, 100K → cyan (50%)", 100_000, 200_000, "\x1b[1;36m"},
+		{"200K cap, 130K → yellow (65%)", 130_000, 200_000, "\x1b[1;33m"},
+		{"200K cap, 160K → red (80%)", 160_000, 200_000, "\x1b[1;31m"},
+		// ContextWindowSize doesn't produce a divide-by-zero.
+		{"zero cap defaults to 200K (bright green)", 10_000, 0, "\x1b[1;92m"},
+
+		// >200K cap: absolute-token path. The key user-facing intent —
+		// 200K used must NOT be green just because the cap is 1M.
+		{"1M cap, 50K → green", 50_000, 1_000_000, "\x1b[1;32m"},
+		{"1M cap, 180K → cyan (closing in)", 180_000, 1_000_000, "\x1b[1;36m"},
+		{"1M cap, 200K → yellow (compress soon)", 200_000, 1_000_000, "\x1b[1;33m"},
+		{"1M cap, 260K → red (compress NOW)", 260_000, 1_000_000, "\x1b[1;31m"},
+		// 250K on a 1M window: under the OLD pct logic this was 25% =
+		// cyan; under the new logic it's red — pinning the regression.
+		{"1M cap, 250K → red (was cyan under pct logic)", 250_000, 1_000_000, "\x1b[1;31m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, contextColor(tt.tokens, tt.maxTokens))
+		})
+	}
+}
+
+// TestTokenBarCollector_ExtendedWindow exercises the >200K dispatch end-to-end
+// through the collector to make sure the bar's colour follows
+// contextAbsoluteColor when the window is wider than the Anthropic default.
+func TestTokenBarCollector_ExtendedWindow(t *testing.T) {
+	collector := NewTokenBarCollector()
+	tests := []struct {
+		name      string
+		input     *StatusLineInput
+		wantColor string
+	}{
+		{
+			name:      "1M cap, 50K used → green",
+			input:     makeStatusInput(50_000, 0, 0, 1_000_000),
+			wantColor: "\x1b[1;32m",
+		},
+		{
+			name:      "1M cap, 180K used → cyan",
+			input:     makeStatusInput(180_000, 0, 0, 1_000_000),
+			wantColor: "\x1b[1;36m",
+		},
+		{
+			name:      "1M cap, 200K used → yellow (compress soon)",
+			input:     makeStatusInput(200_000, 0, 0, 1_000_000),
+			wantColor: "\x1b[1;33m",
+		},
+		{
+			name:      "1M cap, 260K used → red (compress NOW)",
+			input:     makeStatusInput(260_000, 0, 0, 1_000_000),
+			wantColor: "\x1b[1;31m",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := collector.Collect(tt.input, nil)
+			require.NoError(t, err)
+			assert.True(t, strings.Contains(got, tt.wantColor), "want %q to contain %q", got, tt.wantColor)
+		})
+	}
+}
+
+// TestTokenBarCollector_MinimumFillWhenUsed pins the rule that any non-zero
+// usage must paint at least one filled block, so the tier colour is always
+// visible. Regression for the 1M-window case where 9% of 1M truncates the
+// fill to zero and leaves the bar rendered as bare "░░░░░░░░░░" with no
+// colour at all — see the comment in TokenBarCollector.Collect.
+func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
+	collector := NewTokenBarCollector()
+
+	t.Run("1M window 9% usage still paints one green block", func(t *testing.T) {
+		// 93.9K out of 1M = 9.39% → fillWidth would round to 0 without
+		// the floor. We assert (a) the green colour code is present AND
+		// (b) at least one filled "█" character appears.
+		input := makeStatusInput(93_900, 0, 0, 1_000_000)
+		got, err := collector.Collect(input, nil)
+		require.NoError(t, err)
+		assert.Contains(t, got, "\x1b[1;32m", "green tier must be applied")
+		assert.Contains(t, got, "█", "must paint at least one filled block")
+	})
+
+	t.Run("0 tokens stays fully empty (no synthetic fill)", func(t *testing.T) {
+		// 0 usage should still render an unfilled bar — the floor only
+		// kicks in when tokens > 0.
+		input := makeStatusInput(0, 0, 0, 1_000_000)
+		got, err := collector.Collect(input, nil)
+		require.NoError(t, err)
+		assert.NotContains(t, got, "█", "zero usage must not paint a fill block")
+	})
+
+	t.Run("200K window 5% usage still paints one bright green block", func(t *testing.T) {
+		// 10K out of 200K = 5% → also rounds to 0 fillWidth pre-floor;
+		// the fix must apply to the legacy ≤200K path too, not just 1M.
+		input := makeStatusInput(10_000, 0, 0, 200_000)
+		got, err := collector.Collect(input, nil)
+		require.NoError(t, err)
+			assert.Contains(t, got, "\x1b[1;92m", "bright green tier must be applied")
+		assert.Contains(t, got, "█", "must paint at least one filled block")
+	})
+}
+
+// TestTokenInfoCollector_ExtendedWindow mirrors the bar test for the
+// percent-text segment so the "(20.0%)" colouring escalates on the same
+// schedule. Without this, a 1M user would see the bar go yellow at 200K but
+// the parenthesised percent still display in the old (green) tier.
+func TestTokenInfoCollector_ExtendedWindow(t *testing.T) {
+	collector := NewTokenInfoCollector()
+	tests := []struct {
+		name      string
+		input     *StatusLineInput
+		wantColor string
+	}{
+		{"1M cap, 50K → green", makeStatusInput(50_000, 0, 0, 1_000_000), "\x1b[1;32m"},
+		{"1M cap, 180K → cyan", makeStatusInput(180_000, 0, 0, 1_000_000), "\x1b[1;36m"},
+		{"1M cap, 200K → yellow", makeStatusInput(200_000, 0, 0, 1_000_000), "\x1b[1;33m"},
+		{"1M cap, 260K → red", makeStatusInput(260_000, 0, 0, 1_000_000), "\x1b[1;31m"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := collector.Collect(tt.input, nil)
+			require.NoError(t, err)
+			assert.Contains(t, got, tt.wantColor)
 		})
 	}
 }
@@ -235,28 +404,34 @@ func TestTokenInfoCollector_PercentColoured(t *testing.T) {
 		wantPct   string
 	}{
 		{
-			name:      "12.9% lands in green tier",
-			input:     makeStatusInput(129000, 0, 100, 1000000),
-			wantColor: "\x1b[1;32m",
-			wantPct:   "12.9%",
+			name:      "5% lands in bright green tier",
+			input:     makeStatusInput(10000, 0, 0, 200000),
+			wantColor: "\x1b[1;92m",
+			wantPct:   "5.0%",
 		},
 		{
-			name:      "30% lands in cyan tier",
+			name:      "30% lands in green tier",
 			input:     makeStatusInput(60000, 0, 0, 200000),
-			wantColor: "\x1b[1;36m",
+			wantColor: "\x1b[1;32m",
 			wantPct:   "30.0%",
 		},
 		{
-			name:      "50% lands in yellow tier",
+			name:      "50% lands in cyan tier",
 			input:     makeStatusInput(100000, 0, 0, 200000),
-			wantColor: "\x1b[1;33m",
+			wantColor: "\x1b[1;36m",
 			wantPct:   "50.0%",
 		},
 		{
-			name:      "75% lands in red tier",
-			input:     makeStatusInput(150000, 0, 0, 200000),
+			name:      "65% lands in yellow tier",
+			input:     makeStatusInput(130000, 0, 0, 200000),
+			wantColor: "\x1b[1;33m",
+			wantPct:   "65.0%",
+		},
+		{
+			name:      "80% lands in red tier",
+			input:     makeStatusInput(160000, 0, 0, 200000),
 			wantColor: "\x1b[1;31m",
-			wantPct:   "75.0%",
+			wantPct:   "80.0%",
 		},
 	}
 

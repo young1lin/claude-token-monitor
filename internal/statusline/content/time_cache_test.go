@@ -1178,7 +1178,7 @@ func TestGetSubscriptionQuota_BothZero(t *testing.T) {
 
 	// Assert: shows full info even at 0% usage (no reset times → edge case format).
 	// 0% sits in the lowest tier so both percentages are wrapped in bright green.
-	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h · \x1b[1;92m0%\x1b[0m 7d", result)
+	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h ↻ now · \x1b[1;92m0%\x1b[0m 7d ↻ now", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
@@ -1196,7 +1196,7 @@ func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
 
 	// Assert: 5h carries an inline countdown; 7d has no reset.
 	// 65% → yellow (heads-up); 0% → bright green (plenty of headroom).
-	assert.Equal(t, "📊 \x1b[1;33m65%\x1b[0m 5h ↻ 4h32m · \x1b[1;92m0%\x1b[0m 7d", result)
+	assert.Equal(t, "📊 \x1b[1;33m65%\x1b[0m 5h ↻ 4h32m · \x1b[1;92m0%\x1b[0m 7d ↻ now", result)
 }
 
 func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
@@ -1210,7 +1210,7 @@ func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
 
 	// Assert: always shows both 5h and 7d, no reset time when not provided.
 	// 80% lands exactly on the red tier boundary.
-	assert.Equal(t, "📊 \x1b[1;31m80%\x1b[0m 5h · \x1b[1;92m0%\x1b[0m 7d", result)
+	assert.Equal(t, "📊 \x1b[1;31m80%\x1b[0m 5h ↻ now · \x1b[1;92m0%\x1b[0m 7d ↻ now", result)
 }
 
 func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
@@ -1228,7 +1228,7 @@ func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
 
 	// Assert: only 7d carries an inline countdown.
 	// 42% → cyan (past halfway); 0% → bright green.
-	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h · \x1b[1;36m42%\x1b[0m 7d ↻ 1d22h", result)
+	assert.Equal(t, "📊 \x1b[1;92m0%\x1b[0m 5h ↻ now · \x1b[1;36m42%\x1b[0m 7d ↻ 1d22h", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
@@ -1249,7 +1249,7 @@ func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
 
 	// Assert: 5h carries inline countdown; 7d has no reset → no trailing countdown.
 	// 67% → yellow tier; 45% → cyan tier.
-	assert.Equal(t, "📊 \x1b[1;33m67%\x1b[0m 5h ↻ 2h0m · \x1b[1;36m45%\x1b[0m 7d", result)
+	assert.Equal(t, "📊 \x1b[1;33m67%\x1b[0m 5h ↻ 2h0m · \x1b[1;36m45%\x1b[0m 7d ↻ now", result)
 }
 
 func TestGetSubscriptionQuota_BothLimits_NoResetTime(t *testing.T) {

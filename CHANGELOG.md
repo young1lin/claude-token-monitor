@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-05-26
+
+### Changed
+- **Context colour tiers expanded to 5 levels** (bright green → green → cyan → yellow → red). Red threshold moved from 60% to 75% to match AutoCompact at ~85%.
+- **Extended-window (>200K) absolute-token colour tiers.** A 1M context window now warns at 180K/200K/250K absolute thresholds instead of showing green until 600K used.
+- **MCP label replaced with 🧩 emoji** for horizontal space savings.
+- **GLM window reset flicker fix.** 5h/7d segments now stay visible after a window resets (API briefly returns 0% with no reset time). Zero reset time renders as "↻ now".
+- **Minimum fill block.** Any non-zero usage paints at least one filled block on the progress bar, preventing invisible colour on large windows.
+
 ## [0.2.4] - 2026-05-25
 
 ### Added

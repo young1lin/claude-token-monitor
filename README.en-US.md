@@ -62,7 +62,7 @@ content:
 
 ### GLM / Z.ai Quota Display
 
-When `ANTHROPIC_BASE_URL` points to `api.z.ai`, `open.bigmodel.cn`, or `dev.bigmodel.cn`, the subscription quota line switches to the GLM monitor quota API. It shows the plan tag (`[Max]` / `[Pro]` / `[Lite]`), 5h / 7d token windows, and the GLM Coding Plan MCP monthly call budget, for example `MCP 380/4k`. Anthropic accounts do not have an MCP quota, so no MCP segment is shown there.
+When `ANTHROPIC_BASE_URL` points to `api.z.ai`, `open.bigmodel.cn`, or `dev.bigmodel.cn`, the subscription quota line switches to the GLM monitor quota API. It shows the plan tag (`[Max]` / `[Pro]` / `[Lite]`), 5h / 7d token windows, and the GLM Coding Plan MCP monthly call budget, for example `🧩 380/4k` (🧩 stands in for MCP — pluggable tool calls). Anthropic accounts do not have an MCP quota, so no 🧩 segment is shown there.
 
 GLM cache files are separated by `provider + ANTHROPIC_AUTH_TOKEN` fingerprint, so switching between Pro / Lite or different Z.ai / Zhipu accounts on the same machine does not reuse stale quota from another account. On HTTP 429, the plugin honors the server's `Retry-After` value first.
 
@@ -198,7 +198,7 @@ How the quota row differs across plans / providers:
 
 ![](./images/claude-code-monitor-pro.png)
 
-**GLM Coding Plan (Max)** — `[Max] 1% 5h ↻ 3h23m · MCP 42/4k`, the only one that surfaces an MCP monthly call budget
+**GLM Coding Plan (Max)** — `[Max] 1% 5h ↻ 3h23m · 🧩 42/4k`, the only one that surfaces an MCP monthly call budget (🧩 = MCP tool calls)
 
 ![](./images/claude-code-monitor-glm.png)
 

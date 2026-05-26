@@ -160,9 +160,12 @@ func TestFormatPercentWindow_ColoursOnlyTheNumber(t *testing.T) {
 	red := formatPercentWindow(85, "5h", reset, now)
 	assert.Equal(t, "\x1b[1;31m85%\x1b[0m 5h ↻ 2h33m", red)
 
-	// No reset time → trailing "↻" must not appear, percentage still coloured.
+	// Zero reset time → render as "↻ now" rather than dropping the arrow.
+	// This matches Anthropic's default behaviour for fresh windows and keeps
+	// the layout consistent across refreshes; the older "drop the arrow"
+	// path made GLM 5h segments visually flicker right after a window reset.
 	noReset := formatPercentWindow(15, "7d", time.Time{}, now)
-	assert.Equal(t, "\x1b[1;92m15%\x1b[0m 7d", noReset)
+	assert.Equal(t, "\x1b[1;92m15%\x1b[0m 7d ↻ now", noReset)
 }
 
 // Test for getLocalTimeZoneName
