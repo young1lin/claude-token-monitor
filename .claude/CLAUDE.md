@@ -12,7 +12,7 @@ Add `--debug` flag to enable debug logging in `.claude/settings.local.json`:
 {
   "statusLine": {
     "type": "command",
-    "command": "C:\\\\PythonProject\\\\minimal-mcp\\\\go\\\\claude-token-monitor\\\\statusline.exe --debug",
+    "command": "C:\\\\path\\\\to\\\\statusline.exe --debug",
     "env": {
       "STATUSLINE_SINGLELINE": "1"
     }

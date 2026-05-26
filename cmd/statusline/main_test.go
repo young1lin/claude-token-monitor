@@ -278,7 +278,7 @@ func TestStatusLineInputProjectName(t *testing.T) {
 	}{
 		{
 			name:        "Windows path",
-			cwd:         `C:\PythonProject\minimal-mcp\go\claude-token-monitor`,
+			cwd:         `C:\Users\dev\claude-token-monitor`,
 			projectName: "claude-token-monitor",
 		},
 		{
