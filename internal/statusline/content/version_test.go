@@ -162,7 +162,8 @@ type trackingRunner struct {
 
 func (r *trackingRunner) Run(dir, name string, args ...string) ([]byte, error) {
 	r.calls++
-	return []byte("claude 9.9.9\n"), nil
+	// Real `claude --version` prints just the version string, no prefix.
+	return []byte("2.1.150\n"), nil
 }
 
 func TestClaudeVersionCollector_PrefersStdinVersion(t *testing.T) {
@@ -193,6 +194,6 @@ func TestClaudeVersionCollector_FallsBackWhenStdinVersionEmpty(t *testing.T) {
 
 	got, err := NewClaudeVersionCollector().Collect(input, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "claude", got, "fallback parses `claude 9.9.9` → first token")
+	assert.Equal(t, "2.1.150", got)
 	assert.Equal(t, 1, runner.calls, "fallback path must invoke the runner exactly once")
 }

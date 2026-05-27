@@ -60,21 +60,21 @@ func TestGetProjectName(t *testing.T) {
 			cwd:      "C:\\Users\\John Doe\\My Project",
 			expected: "My Project",
 		},
-		// Long names (>25 chars)
+		// Long names (>32 runes)
 		{
 			name:     "Linux long name",
 			cwd:      "/home/user/very-long-project-name-that-exceeds-limit",
-			expected: "very-long-project-name..",
+			expected: "very-long-project-name-that-e..",
 		},
 		{
 			name:     "Windows long name",
 			cwd:      "C:\\Users\\User\\another-very-long-project-name-here",
-			expected: "another-very-long-proj..",
+			expected: "another-very-long-project-nam..",
 		},
 		{
 			name:     "macOS long name",
 			cwd:      "/Users/john/extremely-long-project-folder-name-exceeds-max",
-			expected: "extremely-long-project..",
+			expected: "extremely-long-project-folder..",
 		},
 		// Edge cases
 		{
@@ -117,17 +117,34 @@ func TestGetProjectName(t *testing.T) {
 			cwd:      "C:\\Users\\User\\minimal-mcp\\",
 			expected: "minimal-mcp",
 		},
-		// Exactly 25 characters (boundary test)
+		// Exactly 32 characters (boundary test — no truncation)
 		{
-			name:     "Exactly 25 characters",
-			cwd:      "/home/user/1234567890123456789012345",
-			expected: "1234567890123456789012345",
+			name:     "Exactly 32 characters",
+			cwd:      "/home/user/12345678901234567890123456789012",
+			expected: "12345678901234567890123456789012",
 		},
-		// 26 characters (should truncate)
+		// 33 characters (should truncate)
 		{
-			name:     "Exactly 26 characters",
-			cwd:      "/home/user/12345678901234567890123456",
-			expected: "1234567890123456789012..",
+			name:     "Exactly 33 characters",
+			cwd:      "/home/user/123456789012345678901234567890123",
+			expected: "12345678901234567890123456789..",
+		},
+		// Multi-byte UTF-8 (Chinese): must slice by rune, not byte —
+		// otherwise the truncated string ends mid-character and renders
+		// as a broken replacement glyph in the terminal.
+		{
+			// 37 runes total: 22 Han + "test-extra-long" (15 ASCII) → trims to 29 runes.
+			// First 29 runes = 22 Han + "test-ex" → ".." follows.
+			name:     "Long Chinese name truncates on rune boundary",
+			cwd:      "/home/user/我的中文项目名称非常非常非常长真的应该被截断test-extra-long",
+			expected: "我的中文项目名称非常非常非常长真的应该被截断test-ex..",
+		},
+		{
+			// 42 runes total: 5 Han + "-" + 36 ASCII → trims to 29 runes:
+			// 5 Han + "-" + 23 ASCII ("abcdefghijklmnopqrstuvw") → ".." follows.
+			name:     "Long mixed Chinese-ASCII project name",
+			cwd:      "/home/user/超长项目名-abcdefghijklmnopqrstuvwxyz0123456789",
+			expected: "超长项目名-abcdefghijklmnopqrstuvw..",
 		},
 	}
 

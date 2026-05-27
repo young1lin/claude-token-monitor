@@ -137,8 +137,13 @@ func getProjectName(cwd string) string {
 	normalized := strings.ReplaceAll(cwd, "\\", "/")
 	name := filepath.Base(normalized)
 
-	if len(name) > 25 {
-		return name[:22] + ".."
+	// Slice by rune, not byte: a project name like "我的中文项目-app" would
+	// otherwise get cut mid-UTF-8 and render as broken replacement glyphs.
+	// 32-rune cap matches TruncateBranch so the two cells stay visually
+	// balanced; both leave 29 runes + ".." in the truncated case.
+	runes := []rune(name)
+	if len(runes) > 32 {
+		return string(runes[:29]) + ".."
 	}
 	return name
 }

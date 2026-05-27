@@ -184,12 +184,13 @@ func formatGitStatus(added, deleted, modified int) string {
 	return strings.Join(statusParts, " ")
 }
 
-// TruncateBranch limits branch name display length to 25 characters.
-// Uses rune slicing for proper Unicode handling.
+// TruncateBranch limits branch name display length to 32 runes. Kept aligned
+// with getProjectName in folder.go so the two cells share the same visual
+// budget. Uses rune slicing for proper Unicode handling.
 func TruncateBranch(branch string) string {
 	runes := []rune(branch)
-	if len(runes) > 25 {
-		return string(runes[:22]) + ".."
+	if len(runes) > 32 {
+		return string(runes[:29]) + ".."
 	}
 	return branch
 }

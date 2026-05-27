@@ -920,10 +920,10 @@ func TestTruncateBranch(t *testing.T) {
 		{"empty branch", "", ""},
 		{"main branch", "main", "main"},
 		{"develop branch", "develop", "develop"},
-		{"exactly 25 chars", "feature/25-characters-br!", "feature/25-characters-br!"},
-		{"26 chars truncated", "feature/26-characters-br!!", "feature/26-characters-.."},
-		{"long feature branch", "feature/young1lin/refactor-branch-cell", "feature/young1lin/refa.."},
-		{"long fix branch", "fix/some-very-long-descriptive-bugfix-branch-name", "fix/some-very-long-des.."},
+		{"exactly 32 chars", "feature/exactly-32-char-branch!!", "feature/exactly-32-char-branch!!"},
+		{"33 chars truncated", "feature/exactly-33-char-branch!!!", "feature/exactly-33-char-branc.."},
+		{"long feature branch", "feature/young1lin/refactor-branch-cell", "feature/young1lin/refactor-br.."},
+		{"long fix branch", "fix/some-very-long-descriptive-bugfix-branch-name", "fix/some-very-long-descriptiv.."},
 	}
 
 	for _, tt := range tests {

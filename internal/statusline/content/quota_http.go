@@ -11,11 +11,11 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// httpTimeoutSeconds caps a single quota-API call. Kept generous because the
-// upstream OAuth-usage endpoint occasionally takes a few seconds to respond
-// during peak hours, and timing out turns into a fake "API unavailable"
-// state in the cache.
-const httpTimeoutSeconds = 15
+// httpTimeoutSeconds caps a single quota-API call. Aligned with the quota
+// collector's own 4s timeout (NewQuotaCollector) and with glmHTTPTimeout —
+// a longer HTTP deadline is dead weight because the collector kills us first,
+// and the only visible effect is "looks like the API failed" in the cache.
+const httpTimeoutSeconds = 4
 
 // claudeAPIProxy holds the proxy URL applied only to api.anthropic.com requests.
 // Empty (default) → no proxy. Precedence resolution (CLI > env > YAML) happens
