@@ -153,3 +153,46 @@ func TestGetClaudeVersion_WhitespaceOnly(t *testing.T) {
 	result := getClaudeVersion()
 	assert.Equal(t, "", result)
 }
+
+// trackingRunner counts how many times Run is invoked, so we can prove the
+// stdin-version fast path doesn't shell out.
+type trackingRunner struct {
+	calls int
+}
+
+func (r *trackingRunner) Run(dir, name string, args ...string) ([]byte, error) {
+	r.calls++
+	return []byte("claude 9.9.9\n"), nil
+}
+
+func TestClaudeVersionCollector_PrefersStdinVersion(t *testing.T) {
+	defer restoreDefaultRunner()
+	clearVersionCache()
+
+	runner := &trackingRunner{}
+	defaultCommandRunner = runner
+
+	// Real CC 2.1.150 supplies "version" on stdin — must echo and skip exec.
+	input := &StatusLineInput{Version: "2.1.150"}
+
+	got, err := NewClaudeVersionCollector().Collect(input, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "2.1.150", got)
+	assert.Equal(t, 0, runner.calls, "stdin fast path must not fork `claude --version`")
+}
+
+func TestClaudeVersionCollector_FallsBackWhenStdinVersionEmpty(t *testing.T) {
+	defer restoreDefaultRunner()
+	clearVersionCache()
+
+	runner := &trackingRunner{}
+	defaultCommandRunner = runner
+
+	// Older CC: Version is empty → run the binary.
+	input := &StatusLineInput{Version: ""}
+
+	got, err := NewClaudeVersionCollector().Collect(input, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got, "fallback parses `claude 9.9.9` → first token")
+	assert.Equal(t, 1, runner.calls, "fallback path must invoke the runner exactly once")
+}

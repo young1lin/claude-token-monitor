@@ -45,6 +45,45 @@ func TestTokenComposer_Compose(t *testing.T) {
 			want: "[GLM-4.7 ███░░░░]",
 		},
 		{
+			// Mode-flags now LIVE OUTSIDE the brackets — that way the
+			// "[ model bar % ]" identifier stays a fixed-shape chip, and
+			// runtime decorations (💭/⚡/effort) trail it as siblings.
+			name:     "default composer with mode flags",
+			composer: NewTokenComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentModel:     "Opus 4.7",
+				content.ContentTokenBar:  "█░░░░░░░░░",
+				content.ContentTokenInfo: "58K/1000K",
+				content.ContentModeFlags: "💭 xhigh",
+			},
+			want: "[Opus 4.7 █░░░░░░░░░ 58K/1000K] 💭 xhigh",
+		},
+		{
+			name:     "default composer with bar but mode flags only (no info)",
+			composer: NewTokenComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentModel:     "Opus 4.7",
+				content.ContentTokenBar:  "█░░",
+				content.ContentTokenInfo: "",
+				content.ContentModeFlags: "⚡",
+			},
+			want: "[Opus 4.7 █░░] ⚡",
+		},
+		{
+			// Regression: empty mode-flags must NOT introduce a stray
+			// trailing space — that would be the most likely future bug
+			// if the conditional ever gets dropped.
+			name:     "default composer with empty mode flags collapses cleanly",
+			composer: NewTokenComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentModel:     "Opus 4.7",
+				content.ContentTokenBar:  "█░░",
+				content.ContentTokenInfo: "58K/1M",
+				content.ContentModeFlags: "",
+			},
+			want: "[Opus 4.7 █░░ 58K/1M]",
+		},
+		{
 			name:     "default composer with empty model uses default",
 			composer: NewTokenComposer(),
 			contents: map[content.ContentType]string{
@@ -233,11 +272,12 @@ func TestTokenComposer_InputTypes(t *testing.T) {
 		{
 			name:       "default composer input types",
 			composer:   NewTokenComposer(),
-			wantLength: 3,
+			wantLength: 4,
 			wantContains: []content.ContentType{
 				content.ContentModel,
 				content.ContentTokenBar,
 				content.ContentTokenInfo,
+				content.ContentModeFlags,
 			},
 		},
 		{

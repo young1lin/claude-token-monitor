@@ -314,6 +314,7 @@ func registerAllCollectors(mgr *content.Manager) {
 		content.NewQuotaCollector(),
 		content.NewToolStatusDetailCollector(),
 		content.NewParentMemoryCollector(),
+		content.NewModeFlagsCollector(),
 	)
 }
 

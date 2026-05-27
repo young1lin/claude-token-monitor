@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-05-26
+
+### Added
+- **`mode-flags` indicator chip.** When Claude Code reports a non-default
+  thinking mode, fast mode, or effort tier on stdin, the token cell now
+  trails a small chip showing it: `[Opus 4.7 (1M context) [█░░] 58K/1M] 💭 xhigh`.
+  The effort tier carries a colour (xhigh = magenta, high = yellow, low =
+  green); thinking shows 💭 and fast mode ⚡. Medium effort is the implicit
+  default and intentionally not rendered. Chip lives outside the brackets
+  so the `[ model bar % ]` identifier stays a fixed shape.
+
+### Changed
+- **Anthropic quota uses CC 2.1.x stdin `rate_limits`, skipping the
+  OAuth API.** When `rate_limits` is present in the host payload, the
+  quota collector reads 5h/7d usage straight from stdin and avoids
+  hitting `https://api.anthropic.com/api/oauth/usage` — saving a request
+  per refresh and side-stepping the 429 backoff state machine entirely.
+  Plan label (Max/Pro/Team) still comes from `.credentials.json`.
+  Falls back to the OAuth API path on older CC builds that don't emit
+  `rate_limits`. GLM path unaffected.
+- **Claude Code version (`v2.1.150`) read from stdin instead of forking
+  `claude --version`.** Eliminates a subprocess per refresh.
+
+### Fixed
+- N/A — this release is feature work, not bugfixes.
+
+### Internal
+- **Quota code split out of `time.go` (~1200 lines → ~75).** The historic
+  `time.go` had grown to ~95% quota code (HTTP client, file cache, 429
+  backoff state machine, Anthropic OAuth, GLM monitor). Split into one
+  file per concern under `internal/statusline/content/`:
+  - `time.go` — `CurrentTimeCollector` + timezone only
+  - `provider.go` — provider detection (Anthropic / GLM / cache match)
+  - `quota.go` — `QuotaCollector` + `UsageData` / MCP types + render
+  - `quota_cache.go` — file-backed cache + 429 backoff state machine
+  - `quota_http.go` — proxy + HTTP client + `parseRetryAfterHeader`
+  - `quota_anthropic.go` — Anthropic OAuth fetcher + stdin fast path
+  - `quota_glm.go` — GLM monitor fetcher + plan-window metadata
+
+  Test files renamed to match (`time_cache_test.go` → `quota_cache_test.go`,
+  `time_stdin_test.go` → `quota_stdin_test.go`, `glm_test.go` →
+  `quota_glm_test.go`). No behaviour change; all existing tests pass
+  against the new layout.
+- **Unit-test speedups** to comply with `.claude/rules/unit-testing.md`
+  (no `time.Sleep` in unit tests):
+  - `parser`: `TestParseTranscriptCacheExpiration` previously slept 6s to
+    let the 5s in-memory cache TTL expire. Introduced a `nowFn = time.Now`
+    injection point in `transcript.go` and rewrote the test to advance a
+    virtual clock. Package total **6.086s → 0.098s (~62×)**.
+  - `content`: six tests dead-waited ~50ms each on the post-mark refresh
+    coordination delay. `refreshCoordDelay` is now a `var` (was `const`)
+    and `TestMain` zeroes it for the suite; the one test that exercises
+    real coordination restores 50ms via `t.Cleanup`. Package total
+    **0.689s → 0.357s**.
+
 ## [0.2.5] - 2026-05-26
 
 ### Changed

@@ -38,6 +38,51 @@ type StatusLineInput struct {
 		CurrentDir string `json:"current_dir"`
 		ProjectDir string `json:"project_dir"`
 	} `json:"workspace"`
+
+	// Version is the Claude Code CLI version, sent directly by the host since
+	// CC 2.1.x. Empty when the host predates this field — collectors fall back
+	// to invoking `claude --version`.
+	Version string `json:"version"`
+
+	// RateLimits is the host-provided Anthropic subscription usage snapshot,
+	// available since CC 2.1.x. When present, the quota collector uses it
+	// directly and skips the OAuth /api/oauth/usage HTTP path entirely
+	// (saving a request and avoiding 429 backoff). Nil = older CC / not a
+	// subscription account → fall back to the API flow.
+	RateLimits *StdinRateLimits `json:"rate_limits,omitempty"`
+
+	// Effort is the current thinking-effort tier ("low" / "medium" / "high" /
+	// "xhigh") chosen for this session. The mode-flags collector treats
+	// "medium" as the default and only surfaces tiers that diverge from it
+	// (so the chip stays out of the way in the common case).
+	Effort struct {
+		Level string `json:"level"`
+	} `json:"effort"`
+
+	// Thinking carries the extended-thinking toggle. When enabled, the
+	// mode-flags collector renders 💭 so users see at a glance that the
+	// model is allowed to spend extra tokens reasoning.
+	Thinking struct {
+		Enabled bool `json:"enabled"`
+	} `json:"thinking"`
+
+	// FastMode is the high-throughput / low-latency hint. Off by default;
+	// when true, the mode-flags collector renders ⚡.
+	FastMode bool `json:"fast_mode"`
+}
+
+// StdinRateLimitWindow is one CC-supplied usage window. ResetsAt is Unix
+// seconds (e.g. 1779798600); zero means "no known reset time".
+type StdinRateLimitWindow struct {
+	UsedPercentage float64 `json:"used_percentage"`
+	ResetsAt       int64   `json:"resets_at"`
+}
+
+// StdinRateLimits mirrors the JSON shape Claude Code emits under "rate_limits".
+// Either window can be nil if the host hasn't computed it yet.
+type StdinRateLimits struct {
+	FiveHour *StdinRateLimitWindow `json:"five_hour,omitempty"`
+	SevenDay *StdinRateLimitWindow `json:"seven_day,omitempty"`
 }
 
 // TranscriptSummary represents parsed transcript data

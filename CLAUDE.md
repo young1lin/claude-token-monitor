@@ -28,10 +28,36 @@ internal/
 ├── statusline/
 │   ├── config/           # Configuration management
 │   ├── content/          # Content collectors and composers
+│   │   ├── folder.go         # StatusLineInput (CC 2.1.150 stdin schema)
+│   │   ├── mode_flags.go     # 💭 / ⚡ / effort chip collector
+│   │   ├── time.go           # CurrentTimeCollector + tz only (~75 lines)
+│   │   ├── version.go        # stdin version fast path + claude --version fallback
+│   │   ├── provider.go       # providerKind + detectProvider + cache match
+│   │   ├── quota.go          # QuotaCollector + UsageData/MCP types + render
+│   │   ├── quota_cache.go    # file-backed cache + 429 backoff state machine
+│   │   ├── quota_http.go     # proxy + HTTP client + parseRetryAfterHeader
+│   │   ├── quota_anthropic.go # Anthropic OAuth fetcher + stdin rate_limits fast path
+│   │   ├── quota_glm.go      # GLM monitor fetcher + plan-window metadata
+│   │   └── composers/        # Cell composers (token, git, time-quota)
 │   ├── layout/           # Layout management
 │   └── render/           # Output rendering
 └── windows/              # Windows console initialization
 ```
+
+### CC 2.1.150 Stdin Schema (StatusLineInput)
+
+Beyond the original fields, the plugin now also consumes:
+
+| Field | Type | Used by |
+|-------|------|---------|
+| `version` | `string` | `version.go` — echoed; skips `claude --version` fork |
+| `rate_limits` | `*StdinRateLimits` | `quota_anthropic.go` — Anthropic quota; skips OAuth `/api/oauth/usage` request |
+| `effort.level` | `string` (`low` / `medium` / `high` / `xhigh`) | `mode_flags.go` — colored chip |
+| `thinking.enabled` | `bool` | `mode_flags.go` — `💭` chip |
+| `fast_mode` | `bool` | `mode_flags.go` — `⚡` chip |
+| `workspace.repo`, `session_name` | `string` | informational |
+
+Older Claude Code builds that don't send these fields fall back to the original API / subprocess paths automatically — no client-side version sniffing required.
 
 ### Claude Code Data Directory (IMPORTANT)
 
@@ -509,7 +535,7 @@ Added comprehensive tests for all optimizations:
 - **transcript_cache_test.go**: 8 tests covering cache hits, misses, expiration, concurrency
 - **console_windows_test.go**: 5 tests + 2 benchmarks for env var optimization
 
-**Overall Coverage**: 31.8% (up from ~16%)
+**Overall Coverage** (v0.2.6): **96.5%** total — `internal/claudedir`, `statusline/config`, `statusline/content/composers`, `statusline/render` all at 100%; `parser` 98.7%, `layout` 98.7%, `content` 94.9%, `cmd/statusline` 88.0%.
 
 ### Performance Impact
 

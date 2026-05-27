@@ -29,6 +29,7 @@ const (
 	ContentToolStatusDetail ContentType = "tool-status-detail"
 	ContentParentMemory     ContentType = "parent-memory"
 	ContentSessionTotal     ContentType = "session-total"
+	ContentModeFlags        ContentType = "mode-flags"
 )
 
 // Content represents a content fragment

@@ -11,7 +11,20 @@ type TokenComposer struct {
 	composer content.Composer
 }
 
-// NewTokenComposer creates a new token composer with the default format
+// NewTokenComposer creates a new token composer with the default format.
+//
+// Layout shape:
+//
+//	[ model  bar  info ]  mode-flags
+//	   ↑       ↑     ↑       ↑
+//	 name   usage   %     💭/⚡/effort
+//
+// The bracket encloses ONLY the static identity + usage triplet (model
+// name, progress bar, percentage). The runtime mode chip lives OUTSIDE
+// the brackets because thinking/effort/fast-mode are session-toggle
+// decorations, not part of the "what model is this and how full is it"
+// identifier. Keeping them outside also stops them from squeezing the
+// bar/percentage alignment whenever the chip flips on or off.
 func NewTokenComposer() *TokenComposer {
 	// Use FormatComposer for the complex logic
 	return &TokenComposer{
@@ -19,10 +32,12 @@ func NewTokenComposer() *TokenComposer {
 			content.ContentModel,
 			content.ContentTokenBar,
 			content.ContentTokenInfo,
+			content.ContentModeFlags,
 		}, func(contents map[content.ContentType]string) string {
 			model := contents[content.ContentModel]
 			bar := contents[content.ContentTokenBar]
 			info := contents[content.ContentTokenInfo]
+			flags := contents[content.ContentModeFlags]
 
 			line := model
 			if line == "" {
@@ -34,7 +49,14 @@ func NewTokenComposer() *TokenComposer {
 			if info != "" {
 				line += " " + info
 			}
-			return "[" + line + "]"
+			result := "[" + line + "]"
+			// mode-flags trails the bracket, separated by one space so
+			// users read it as a sibling chip rather than a continuation
+			// of the percentage.
+			if flags != "" {
+				result += " " + flags
+			}
+			return result
 		}),
 	}
 }

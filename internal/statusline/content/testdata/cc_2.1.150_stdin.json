@@ -1,0 +1,50 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "transcript_path": "~\\.claude\\projects\\C--Project\\00000000-0000-0000-0000-000000000001.jsonl",
+  "cwd": "C:\\Project",
+  "effort": {"level": "xhigh"},
+  "session_name": "anonymized session",
+  "model": {
+    "id": "claude-opus-4-7[1m]",
+    "display_name": "Opus 4.7 (1M context)"
+  },
+  "workspace": {
+    "current_dir": "C:\\Project",
+    "project_dir": "C:\\Project",
+    "added_dirs": [],
+    "repo": {
+      "host": "github.com",
+      "owner": "example",
+      "name": "example-project"
+    }
+  },
+  "version": "2.1.150",
+  "output_style": {"name": "default"},
+  "cost": {
+    "total_cost_usd": 0.7802415,
+    "total_duration_ms": 196226,
+    "total_api_duration_ms": 105309,
+    "total_lines_added": 1,
+    "total_lines_removed": 1
+  },
+  "context_window": {
+    "total_input_tokens": 58872,
+    "total_output_tokens": 114,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 1,
+      "output_tokens": 114,
+      "cache_creation_input_tokens": 339,
+      "cache_read_input_tokens": 58532
+    },
+    "used_percentage": 6,
+    "remaining_percentage": 94
+  },
+  "exceeds_200k_tokens": false,
+  "fast_mode": false,
+  "thinking": {"enabled": true},
+  "rate_limits": {
+    "five_hour": {"used_percentage": 27, "resets_at": 1779798600},
+    "seven_day": {"used_percentage": 24, "resets_at": 1780272000}
+  }
+}

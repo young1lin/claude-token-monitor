@@ -990,9 +990,9 @@ func TestGetGLMUsage_TwoAccountsOnSameProviderHaveIsolatedCaches(t *testing.T) {
 // spent in the new window).
 func TestGLMPlanWindows(t *testing.T) {
 	cases := []struct {
-		plan    string
-		want5h  bool
-		want7d  bool
+		plan   string
+		want5h bool
+		want7d bool
 	}{
 		{"max", true, false},
 		{"Max", true, false},     // case-insensitive
@@ -1001,7 +1001,7 @@ func TestGLMPlanWindows(t *testing.T) {
 		{"Pro", true, true},
 		{"lite", true, true},
 		{"Lite", true, true},
-		{"", false, false},        // unknown / missing
+		{"", false, false}, // unknown / missing
 		{"enterprise", false, false},
 	}
 	for _, tc := range cases {

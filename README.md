@@ -23,6 +23,34 @@ Claude Code 实时 Token 使用状态栏插件。
 /claude-token-monitor:setup
 ```
 
+## 新功能（v0.2.6）
+
+### Stdin 快路径（避开 OAuth 限流）
+
+Claude Code 2.1.x 起在 stdin 里直接给出 `rate_limits`（5h / 7d 配额）和 `version`。状态栏现在优先消费这两个字段：
+
+- **Anthropic 配额**：不再调 `https://api.anthropic.com/api/oauth/usage`，省一次请求、彻底规避 429 退避。`[Max]` / `[Pro]` / `[Team]` 标签仍从 `.credentials.json` 读取
+- **`v2.1.150`**：直接回显，省掉每次 fork 一次 `claude --version` 子进程
+- 老版 CC 没发这些字段时自动降级到原 API 路径，GLM 路径不变（CC 不替 GLM 发 quota）
+
+### 模式指示器（Mode Flags）
+
+Token 单元格末尾会显示当前会话的运行时状态：
+
+```
+[Opus 4.7 (1M context) [██░░░] 282K/1M (28.2%)] 💭 xhigh
+                                                  ↑↑↑↑↑↑↑↑
+                                       thinking + 紫色 xhigh effort
+```
+
+| 标志 | 含义 | 显示条件 |
+|---|---|---|
+| `💭` | extended thinking | `thinking.enabled == true` |
+| `⚡` | fast mode | `fast_mode == true` |
+| `xhigh` 紫 / `high` 黄 / `low` 绿 | effort 档位 | `effort.level != "medium"` |
+
+所有标志全为默认时该 chip 隐藏。
+
 ## 配置
 
 在项目中创建 `.claude/statusline.yml`（`.yml` 优先，也兼容 `.yaml`；放到 `~/.claude/` 下即为全局配置）：

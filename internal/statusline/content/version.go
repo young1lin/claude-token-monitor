@@ -26,8 +26,15 @@ func NewClaudeVersionCollector() *ClaudeVersionCollector {
 	}
 }
 
-// Collect returns the Claude Code version
+// Collect returns the Claude Code version.
+//
+// Fast path: CC 2.1.x+ supplies "version" in the stdin payload, so we just
+// echo it back. Fallback path: older CC builds don't send the field, so we
+// run `claude --version` and cache the result for 5 minutes.
 func (c *ClaudeVersionCollector) Collect(input interface{}, summary interface{}) (string, error) {
+	if statusInput, ok := input.(*StatusLineInput); ok && statusInput != nil && statusInput.Version != "" {
+		return statusInput.Version, nil
+	}
 	return getClaudeVersionCached(), nil
 }
 

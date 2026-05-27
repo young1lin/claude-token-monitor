@@ -116,6 +116,14 @@ func TestParseTranscriptCacheExpiration(t *testing.T) {
 	// Clear cache before test
 	clearTranscriptCache()
 
+	// Inject a virtual clock so we don't have to actually wait out the 5s
+	// TTL. Without this the test takes ~6s wall-clock, which violates the
+	// FIRST principles in .claude/rules/unit-testing.md.
+	realNow := time.Now()
+	virtual := realNow
+	nowFn = func() time.Time { return virtual }
+	t.Cleanup(func() { nowFn = time.Now })
+
 	// Create temp transcript file
 	tmpDir := t.TempDir()
 	transcriptPath := filepath.Join(tmpDir, "test.jsonl")
@@ -127,15 +135,15 @@ func TestParseTranscriptCacheExpiration(t *testing.T) {
 		t.Fatalf("Failed to create transcript file: %v", err)
 	}
 
-	// First parse
+	// First parse — recorded against virtual = realNow.
 	summary1, err := ParseTranscriptLastNLines(transcriptPath, 100)
 	if err != nil {
 		t.Fatalf("First parse failed: %v", err)
 	}
 
-	// Wait for cache to expire (5s TTL + buffer)
-	t.Log("Waiting 6 seconds for cache expiration...")
-	time.Sleep(6 * time.Second)
+	// Advance virtual clock past the 5s TTL so the second call sees an
+	// expired cache and re-parses the file.
+	virtual = realNow.Add(transcriptCacheTTL + time.Second)
 
 	// Second parse - cache should be expired, even if file unchanged
 	summary2, err := ParseTranscriptLastNLines(transcriptPath, 100)
@@ -147,8 +155,6 @@ func TestParseTranscriptCacheExpiration(t *testing.T) {
 	if summary1.InputTokens != summary2.InputTokens {
 		t.Errorf("InputTokens mismatch: %d != %d", summary1.InputTokens, summary2.InputTokens)
 	}
-
-	t.Log("Cache expiration verified - file was re-parsed after TTL")
 }
 
 func TestParseTranscriptConcurrent(t *testing.T) {

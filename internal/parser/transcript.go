@@ -104,6 +104,11 @@ var (
 	transcriptCacheTTL       = 5 * time.Second
 )
 
+// nowFn is the injection point used to expire the cache without an actual
+// time.Sleep — tests override this to advance virtual wall time. Production
+// callers see time.Now. Mirrors the pattern in content/time.go.
+var nowFn = time.Now
+
 // ParseTranscriptLastNLines reads and parses the transcript file
 func ParseTranscriptLastNLines(transcriptPath string, n int) (*TranscriptSummary, error) {
 	return ParseTranscriptLastNLinesWithProjectPath(transcriptPath, n, "")
@@ -123,7 +128,7 @@ func ParseTranscriptLastNLinesWithProjectPath(transcriptPath string, _ int, proj
 		return &TranscriptSummary{}, nil
 	}
 	fileMtime := info.ModTime()
-	now := time.Now()
+	now := nowFn()
 
 	// In-memory cache: helps when multiple collectors call this within one invocation.
 	transcriptCacheMu.RLock()

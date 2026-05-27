@@ -1342,6 +1342,15 @@ func TestShouldRefreshResult_RefreshingCrashed(t *testing.T) {
 }
 
 func TestShouldRefreshResult_RefreshMarkingWriteFail(t *testing.T) {
+	// This test relies on the real 50ms refresh-coordination delay: the
+	// goroutine below waits 10ms then writes an earlier RefreshingSince so
+	// shouldRefreshResult's post-mark re-read picks it up. TestMain zeroes
+	// refreshCoordDelay for the rest of the suite, so we restore it here
+	// (and put it back on cleanup).
+	prev := refreshCoordDelay
+	refreshCoordDelay = 50 * time.Millisecond
+	t.Cleanup(func() { refreshCoordDelay = prev })
+
 	// Arrange: cache expired, writeUsageCache fails because the cache path
 	// target is a directory (os.Rename will fail).
 	homeDir := setupTempHomeDir(t)

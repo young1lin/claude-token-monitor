@@ -13,6 +13,34 @@ Real-time token usage statusline for Claude Code.
 /claude-token-monitor:setup
 ```
 
+## What's New (v0.2.6)
+
+### Stdin Fast Path (Skip the OAuth Rate Limit)
+
+Starting with Claude Code 2.1.x, the stdin payload includes `rate_limits` (5h / 7d quotas) and `version`. The statusline now consumes those fields first:
+
+- **Anthropic quota**: no more call to `https://api.anthropic.com/api/oauth/usage` — saves one request per refresh and side-steps 429 backoff entirely. The `[Max]` / `[Pro]` / `[Team]` plan tag is still read from `.credentials.json`.
+- **`v2.1.150`**: echoed directly, eliminating the per-refresh `claude --version` subprocess fork.
+- When older Claude Code builds don't emit those fields, the plugin transparently falls back to the original API path. GLM path is unchanged (CC doesn't proxy GLM quota).
+
+### Mode Flags Indicator
+
+The token cell now ends with a runtime-state chip:
+
+```
+[Opus 4.7 (1M context) [██░░░] 282K/1M (28.2%)] 💭 xhigh
+                                                  ↑↑↑↑↑↑↑↑
+                                       thinking + purple xhigh effort
+```
+
+| Flag | Meaning | Shown when |
+|---|---|---|
+| `💭` | extended thinking | `thinking.enabled == true` |
+| `⚡` | fast mode | `fast_mode == true` |
+| `xhigh` purple / `high` yellow / `low` green | effort level | `effort.level != "medium"` |
+
+The chip is hidden when every flag is at its default.
+
 ## Configuration
 
 Create `.claude/statusline.yml` in your project (`.yml` is preferred but `.yaml` also works; drop it under `~/.claude/` for a global config):
