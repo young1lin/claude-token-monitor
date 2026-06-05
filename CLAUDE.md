@@ -535,7 +535,7 @@ Added comprehensive tests for all optimizations:
 - **transcript_cache_test.go**: 8 tests covering cache hits, misses, expiration, concurrency
 - **console_windows_test.go**: 5 tests + 2 benchmarks for env var optimization
 
-**Overall Coverage** (v0.2.6): **96.5%** total — `internal/claudedir`, `statusline/config`, `statusline/content/composers`, `statusline/render` all at 100%; `parser` 98.7%, `layout` 98.7%, `content` 94.9%, `cmd/statusline` 88.0%.
+**Overall Coverage** (v0.2.7): **97.7%** total — `internal/claudedir`, `statusline/config`, `statusline/content/composers`, `statusline/render` all at 100%; `parser` 98.7%, `layout` 98.7%, `content` 97.5%, `cmd/statusline` 90.5%.
 
 ### Performance Impact
 

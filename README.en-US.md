@@ -13,7 +13,7 @@ Real-time token usage statusline for Claude Code.
 /claude-token-monitor:setup
 ```
 
-## What's New (v0.2.6)
+## What's New (v0.2.7)
 
 ### Stdin Fast Path (Skip the OAuth Rate Limit)
 

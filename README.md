@@ -23,7 +23,7 @@ Claude Code 实时 Token 使用状态栏插件。
 /claude-token-monitor:setup
 ```
 
-## 新功能（v0.2.6）
+## 新功能（v0.2.7）
 
 ### Stdin 快路径（避开 OAuth 限流）
 
