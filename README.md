@@ -47,11 +47,11 @@ Token 单元格末尾会显示当前会话的运行时状态：
 |---|---|---|
 | `💭` | extended thinking | `thinking.enabled == true` |
 | `⚡` | fast mode | `fast_mode == true` |
-| `max`/`xhigh` 紫 / `high` 黄 / `low` 绿 | effort 档位 | `effort.level != "medium"` |
+| `max`/`xhigh` 紫 / `high` 黄 / `medium` 青 / `low` 绿 | effort 档位 | CC 上报 `effort.level` 时（含 medium） |
 
-所有标志全为默认时该 chip 隐藏。
+thinking、fast、effort 都没有内容时该 chip 隐藏（旧版 CC 不发 `effort.level` 时不显示档位）。
 
-> **v0.2.7**：新增 `max` 档位识别（此前选 `max` effort 不显示任何 chip）；未知档位现在原样显示而非隐藏。
+> **v0.2.7**：effort chip 现在显示 CC 上报的所有档位——新增 `max`（此前选 max 不显示），默认档 `medium` 也照常显示（青色），未知档位原样显示；仅当 CC 未上报 `effort.level`（旧版）时才隐藏。
 
 ## 配置
 

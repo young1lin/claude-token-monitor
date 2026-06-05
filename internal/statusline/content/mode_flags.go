@@ -6,29 +6,32 @@ import (
 	"time"
 )
 
-// ANSI colors used to tint the effort tier so the user can tell max/xhigh/
-// high/low apart at a glance without reading the text label. Medium is
-// intentionally not colored because we never render it (see effortChip below).
+// ANSI colors used to tint the effort tier so the user can tell the levels
+// apart at a glance without reading the text label. The scale mirrors the
+// token bar's green→cyan→yellow→magenta gradient: low is cheap, max burns
+// tokens. Medium is the baseline default but is still rendered (in cyan) so
+// the current tier is always visible whenever Claude Code reports one.
 const (
-	colorEffortMax   = "\x1b[1;35m"   // bright magenta — top tier ("burning tokens")
-	colorEffortXHigh = colorEffortMax // legacy CC name for the same top tier
-	colorEffortHigh  = "\x1b[1;33m"   // yellow — elevated cost
-	colorEffortLow   = "\x1b[1;32m"   // green — cheap
-	colorReset       = "\x1b[0m"
+	colorEffortMax    = "\x1b[1;35m"   // bright magenta — top tier ("burning tokens")
+	colorEffortXHigh  = colorEffortMax // legacy CC name for the same top tier
+	colorEffortHigh   = "\x1b[1;33m"   // yellow — elevated cost
+	colorEffortMedium = "\x1b[1;36m"   // cyan — baseline default
+	colorEffortLow    = "\x1b[1;32m"   // green — cheap
+	colorReset        = "\x1b[0m"
 )
 
 // ModeFlagsCollector surfaces three small runtime indicators Claude Code has
 // been emitting on stdin since 2.1.x: the thinking toggle, the effort tier,
 // and fast-mode. Each is independent; the collector concatenates whichever
-// are non-default and hides itself when nothing is worth saying.
+// are present and hides itself when nothing is worth saying.
 //
 // Output examples:
 //
-//	"💭 xhigh"   thinking on, effort xhigh
-//	"💭"          thinking on, effort medium (default → label suppressed)
-//	"⚡"          fast mode only
-//	"💭 ⚡ high"  full combo
-//	""           all defaults → cell is hidden by the layout (Optional: true)
+//	"💭 xhigh"     thinking on, effort xhigh
+//	"💭 medium"    thinking on, effort medium (baseline tier, still shown)
+//	"⚡ low"        fast mode, effort low
+//	"💭 ⚡ high"    full combo
+//	""             nothing reported → cell is hidden by the layout (Optional: true)
 type ModeFlagsCollector struct {
 	*BaseCollector
 }
@@ -70,16 +73,17 @@ func buildModeFlags(in *StatusLineInput) string {
 	return strings.Join(parts, " ")
 }
 
-// effortChip renders the effort tier when it diverges from the implicit
-// "medium" default. "medium" and "" are suppressed so we don't pollute the
-// statusline with a no-op chip; every other tier renders. Known tiers carry a
-// color so users register the cost before reading the word, while an
-// unrecognised future tier surfaces its raw label (uncolored) rather than
-// disappearing — so a CC rename never silently breaks the chip again.
+// effortChip renders whichever effort tier Claude Code reports. Every tier —
+// including the "medium" baseline — is shown so the current effort is always
+// visible; only an absent/empty level (older CC that doesn't emit the field)
+// is hidden. Known tiers carry a color so users register the cost before
+// reading the word, while an unrecognised future tier surfaces its raw label
+// (uncolored) rather than disappearing — so a CC rename never silently breaks
+// the chip again.
 func effortChip(level string) string {
 	norm := strings.ToLower(strings.TrimSpace(level))
 	switch norm {
-	case "", "medium": // implicit default → stay out of the way
+	case "": // older CC didn't report a tier — nothing to show
 		return ""
 	case "max":
 		return colorEffortMax + "max" + colorReset
@@ -87,6 +91,8 @@ func effortChip(level string) string {
 		return colorEffortXHigh + "xhigh" + colorReset
 	case "high":
 		return colorEffortHigh + "high" + colorReset
+	case "medium":
+		return colorEffortMedium + "medium" + colorReset
 	case "low":
 		return colorEffortLow + "low" + colorReset
 	default:
