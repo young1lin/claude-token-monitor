@@ -37,9 +37,11 @@ The token cell now ends with a runtime-state chip:
 |---|---|---|
 | `💭` | extended thinking | `thinking.enabled == true` |
 | `⚡` | fast mode | `fast_mode == true` |
-| `xhigh` purple / `high` yellow / `low` green | effort level | `effort.level != "medium"` |
+| `max`/`xhigh` purple / `high` yellow / `low` green | effort level | `effort.level != "medium"` |
 
 The chip is hidden when every flag is at its default.
+
+> **v0.2.7**: recognise the `max` effort tier (selecting `max` effort previously showed no chip); unknown tiers now surface their raw label instead of being hidden.
 
 ## Configuration
 

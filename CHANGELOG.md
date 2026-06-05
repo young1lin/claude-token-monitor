@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-06-05
+
+### Fixed
+- **Effort chip now shows `max`.** Claude Code's top effort tier reports
+  `effort.level = "max"` on stdin, which the mode-flags collector didn't
+  recognise — so selecting max effort showed no chip at all. `max` now
+  renders as a magenta top-tier chip (alongside the legacy `xhigh`), and any
+  unrecognised non-`medium` tier now surfaces its raw label instead of
+  silently disappearing.
+- **修复 effort 选 `max` 不显示 chip。** Claude Code 最高 effort 档位在 stdin 上
+  报 `effort.level = "max"`，mode-flags 此前不认识它，导致选 max 时状态栏不显示
+  任何 chip。现在 `max` 渲染为紫色顶档 chip（与旧名 `xhigh` 同色），且任何未知的
+  非 `medium` 档位会原样显示而不再被隐藏。
+
 ## [0.2.6] - 2026-05-26
 
 ### Added

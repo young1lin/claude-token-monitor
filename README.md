@@ -47,9 +47,11 @@ Token 单元格末尾会显示当前会话的运行时状态：
 |---|---|---|
 | `💭` | extended thinking | `thinking.enabled == true` |
 | `⚡` | fast mode | `fast_mode == true` |
-| `xhigh` 紫 / `high` 黄 / `low` 绿 | effort 档位 | `effort.level != "medium"` |
+| `max`/`xhigh` 紫 / `high` 黄 / `low` 绿 | effort 档位 | `effort.level != "medium"` |
 
 所有标志全为默认时该 chip 隐藏。
+
+> **v0.2.7**：新增 `max` 档位识别（此前选 `max` effort 不显示任何 chip）；未知档位现在原样显示而非隐藏。
 
 ## 配置
 

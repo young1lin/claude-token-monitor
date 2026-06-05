@@ -52,7 +52,7 @@ Beyond the original fields, the plugin now also consumes:
 |-------|------|---------|
 | `version` | `string` | `version.go` — echoed; skips `claude --version` fork |
 | `rate_limits` | `*StdinRateLimits` | `quota_anthropic.go` — Anthropic quota; skips OAuth `/api/oauth/usage` request |
-| `effort.level` | `string` (`low` / `medium` / `high` / `xhigh`) | `mode_flags.go` — colored chip |
+| `effort.level` | `string` (`low` / `medium` / `high` / `xhigh` / `max`) | `mode_flags.go` — colored chip |
 | `thinking.enabled` | `bool` | `mode_flags.go` — `💭` chip |
 | `fast_mode` | `bool` | `mode_flags.go` — `⚡` chip |
 | `workspace.repo`, `session_name` | `string` | informational |

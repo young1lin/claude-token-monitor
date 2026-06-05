@@ -52,7 +52,7 @@ type StatusLineInput struct {
 	RateLimits *StdinRateLimits `json:"rate_limits,omitempty"`
 
 	// Effort is the current thinking-effort tier ("low" / "medium" / "high" /
-	// "xhigh") chosen for this session. The mode-flags collector treats
+	// "xhigh" / "max") chosen for this session. The mode-flags collector treats
 	// "medium" as the default and only surfaces tiers that diverge from it
 	// (so the chip stays out of the way in the common case).
 	Effort struct {

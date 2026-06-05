@@ -66,6 +66,17 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 			want:     "💭 low",
 		},
 		{
+			name:     "thinking + max — the top tier CC now emits",
+			thinking: true,
+			effort:   "max",
+			want:     "💭 max",
+		},
+		{
+			name:   "max effort alone",
+			effort: "max",
+			want:   "max",
+		},
+		{
 			name:     "fast mode only",
 			fastMode: true,
 			want:     "⚡",
@@ -78,14 +89,19 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 			want:     "💭 ⚡ xhigh",
 		},
 		{
-			name:   "unknown future tier value falls through to no-chip",
+			name:   "unknown future tier surfaces its raw label (no longer hidden)",
 			effort: "ultra-mega",
-			want:   "",
+			want:   "ultra-mega",
 		},
 		{
 			name:   "case-insensitive tier match",
 			effort: "XHIGH",
 			want:   "xhigh",
+		},
+		{
+			name:   "case-insensitive max",
+			effort: "MAX",
+			want:   "max",
 		},
 		{
 			name:   "whitespace tolerated",
@@ -108,9 +124,10 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 }
 
 func TestBuildModeFlags_ColorsAppliedToEffort(t *testing.T) {
-	// xhigh / high / low must each carry their distinct ANSI colour so the
+	// max / xhigh / high / low must each carry their distinct ANSI colour so the
 	// user sees the tier as a visual signal before reading the word.
 	cases := map[string]string{
+		"max":   colorEffortMax,
 		"xhigh": colorEffortXHigh,
 		"high":  colorEffortHigh,
 		"low":   colorEffortLow,

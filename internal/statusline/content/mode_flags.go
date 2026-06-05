@@ -6,13 +6,14 @@ import (
 	"time"
 )
 
-// ANSI colors used to tint the effort tier so the user can tell xhigh/high/low
-// apart at a glance without reading the text label. Medium is intentionally
-// not colored because we never render it (see effortChip below).
+// ANSI colors used to tint the effort tier so the user can tell max/xhigh/
+// high/low apart at a glance without reading the text label. Medium is
+// intentionally not colored because we never render it (see effortChip below).
 const (
-	colorEffortXHigh = "\x1b[1;35m" // bright magenta — "burning tokens"
-	colorEffortHigh  = "\x1b[1;33m" // yellow — elevated cost
-	colorEffortLow   = "\x1b[1;32m" // green — cheap
+	colorEffortMax   = "\x1b[1;35m"   // bright magenta — top tier ("burning tokens")
+	colorEffortXHigh = colorEffortMax // legacy CC name for the same top tier
+	colorEffortHigh  = "\x1b[1;33m"   // yellow — elevated cost
+	colorEffortLow   = "\x1b[1;32m"   // green — cheap
 	colorReset       = "\x1b[0m"
 )
 
@@ -70,11 +71,18 @@ func buildModeFlags(in *StatusLineInput) string {
 }
 
 // effortChip renders the effort tier when it diverges from the implicit
-// "medium" default. Returns "" for medium / empty / unknown so we don't
-// pollute the statusline with no-op chips. Tiers are colored so users
-// register the warning before reading the word.
+// "medium" default. "medium" and "" are suppressed so we don't pollute the
+// statusline with a no-op chip; every other tier renders. Known tiers carry a
+// color so users register the cost before reading the word, while an
+// unrecognised future tier surfaces its raw label (uncolored) rather than
+// disappearing — so a CC rename never silently breaks the chip again.
 func effortChip(level string) string {
-	switch strings.ToLower(strings.TrimSpace(level)) {
+	norm := strings.ToLower(strings.TrimSpace(level))
+	switch norm {
+	case "", "medium": // implicit default → stay out of the way
+		return ""
+	case "max":
+		return colorEffortMax + "max" + colorReset
 	case "xhigh":
 		return colorEffortXHigh + "xhigh" + colorReset
 	case "high":
@@ -82,7 +90,7 @@ func effortChip(level string) string {
 	case "low":
 		return colorEffortLow + "low" + colorReset
 	default:
-		// "medium", "", or anything CC adds in the future we don't recognise.
-		return ""
+		// A tier CC may add later: show the raw label instead of hiding it.
+		return norm
 	}
 }
