@@ -38,9 +38,9 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 			want: "",
 		},
 		{
-			name:   "medium effort alone — hide (medium is the implicit default)",
+			name:   "medium effort alone — now shown (baseline tier is visible)",
 			effort: "medium",
-			want:   "",
+			want:   "medium",
 		},
 		{
 			name:     "thinking only",
@@ -66,6 +66,23 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 			want:     "💭 low",
 		},
 		{
+			name:     "thinking + medium — baseline tier still renders",
+			thinking: true,
+			effort:   "medium",
+			want:     "💭 medium",
+		},
+		{
+			name:     "thinking + max — the top tier CC now emits",
+			thinking: true,
+			effort:   "max",
+			want:     "💭 max",
+		},
+		{
+			name:   "max effort alone",
+			effort: "max",
+			want:   "max",
+		},
+		{
 			name:     "fast mode only",
 			fastMode: true,
 			want:     "⚡",
@@ -78,14 +95,19 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 			want:     "💭 ⚡ xhigh",
 		},
 		{
-			name:   "unknown future tier value falls through to no-chip",
+			name:   "unknown future tier surfaces its raw label (no longer hidden)",
 			effort: "ultra-mega",
-			want:   "",
+			want:   "ultra-mega",
 		},
 		{
 			name:   "case-insensitive tier match",
 			effort: "XHIGH",
 			want:   "xhigh",
+		},
+		{
+			name:   "case-insensitive max",
+			effort: "MAX",
+			want:   "max",
 		},
 		{
 			name:   "whitespace tolerated",
@@ -108,12 +130,14 @@ func TestBuildModeFlags_TableDriven(t *testing.T) {
 }
 
 func TestBuildModeFlags_ColorsAppliedToEffort(t *testing.T) {
-	// xhigh / high / low must each carry their distinct ANSI colour so the
-	// user sees the tier as a visual signal before reading the word.
+	// max / xhigh / high / medium / low must each carry their distinct ANSI
+	// colour so the user sees the tier as a visual signal before reading the word.
 	cases := map[string]string{
-		"xhigh": colorEffortXHigh,
-		"high":  colorEffortHigh,
-		"low":   colorEffortLow,
+		"max":    colorEffortMax,
+		"xhigh":  colorEffortXHigh,
+		"high":   colorEffortHigh,
+		"medium": colorEffortMedium,
+		"low":    colorEffortLow,
 	}
 	for level, wantPrefix := range cases {
 		t.Run(level, func(t *testing.T) {

@@ -13,7 +13,7 @@ Real-time token usage statusline for Claude Code.
 /claude-token-monitor:setup
 ```
 
-## What's New (v0.2.6)
+## What's New (v0.2.7)
 
 ### Stdin Fast Path (Skip the OAuth Rate Limit)
 
@@ -37,9 +37,11 @@ The token cell now ends with a runtime-state chip:
 |---|---|---|
 | `💭` | extended thinking | `thinking.enabled == true` |
 | `⚡` | fast mode | `fast_mode == true` |
-| `xhigh` purple / `high` yellow / `low` green | effort level | `effort.level != "medium"` |
+| `max`/`xhigh` purple / `high` yellow / `medium` cyan / `low` green | effort level | when CC reports `effort.level` (incl. medium) |
 
-The chip is hidden when every flag is at its default.
+The chip is hidden only when thinking, fast mode, and effort are all unreported.
+
+> **v0.2.7**: the effort chip now shows every tier Claude Code reports — `max` (selecting max previously showed no chip), the default `medium` (now rendered in cyan), and any unknown tier as its raw label; it stays hidden only when CC doesn't report `effort.level` (older builds).
 
 ## Configuration
 

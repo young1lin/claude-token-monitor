@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-06-05
+
+### Fixed
+- **Effort chip now shows every tier Claude Code reports (incl. `max` and
+  `medium`).** The mode-flags collector previously rendered only
+  `xhigh`/`high`/`low`: the top tier `effort.level = "max"` showed no chip at
+  all, and the default `medium` was deliberately suppressed. Now `max` renders
+  as a magenta top-tier chip (sharing the legacy `xhigh` colour), `medium`
+  renders in cyan, and any unrecognised future tier surfaces its raw label.
+  Only an absent/empty `effort.level` (older CC) stays hidden.
+- **effort chip 现在显示 CC 上报的所有档位（含 `max` 与 `medium`）。** mode-flags
+  此前只渲染 `xhigh`/`high`/`low`：最高档 `effort.level = "max"` 完全不显示，默认的
+  `medium` 也被刻意隐藏。现在 `max` 渲染为紫色顶档 chip（与旧名 `xhigh` 同色），
+  `medium` 渲染为青色，任何未知档位原样显示；仅当 `effort.level` 缺省/为空（旧版
+  CC）时才隐藏。
+
 ## [0.2.6] - 2026-05-26
 
 ### Added
