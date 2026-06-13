@@ -32,10 +32,15 @@ type GridRow struct {
 	NoAlign bool     // When true, this row is not included in column width calculation
 }
 
-// Grid represents the complete grid with content
+// Grid represents the complete grid with content.
+//
+// Column widths are intentionally NOT stored here: the renderer computes them
+// itself over only the aligned rows, using a display-width function that
+// strips ANSI codes and honours narrow-block terminals. A second width field
+// on the Grid would be a trap — computed with different rules and never used
+// for the actual output.
 type Grid struct {
-	Layout    *Layout
-	Content   CellContent
-	Rows      []GridRow
-	ColWidths []int
+	Layout  *Layout
+	Content CellContent
+	Rows    []GridRow
 }

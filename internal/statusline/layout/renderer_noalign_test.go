@@ -7,9 +7,8 @@ import (
 
 // buildTestGrid creates a Grid with controlled row content for testing.
 // It ensures all rows have a properly initialised 4-element Cells slice,
-// mirroring what NewGrid does so calculateWidths doesn't panic.
+// mirroring what NewGrid does so the renderer can index cells by column.
 func buildTestGrid(rows []GridRow) *Grid {
-	// Ensure every row has a 4-element Cells slice (calculateWidths accesses by index)
 	padded := make([]GridRow, 4)
 	for i := 0; i < 4; i++ {
 		if i < len(rows) {
@@ -22,15 +21,11 @@ func buildTestGrid(rows []GridRow) *Grid {
 		}
 	}
 
-	layout := &Layout{Cells: []Cell{}}
-	grid := &Grid{
-		Layout:    layout,
-		Content:   CellContent{},
-		Rows:      padded,
-		ColWidths: make([]int, 4),
+	return &Grid{
+		Layout:  &Layout{Cells: []Cell{}},
+		Content: CellContent{},
+		Rows:    padded,
 	}
-	grid.calculateWidths()
-	return grid
 }
 
 // TestNoAlignRowSkipsColumnWidthCalculation verifies that a NoAlign row does not

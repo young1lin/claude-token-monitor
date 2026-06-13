@@ -1,24 +1,15 @@
 package parser
 
-import "os/exec"
+import "github.com/young1lin/claude-token-monitor/internal/cmdrunner"
 
-// CommandRunner executes a command in a directory and returns its output.
-type CommandRunner interface {
-	Run(dir string, name string, args ...string) ([]byte, error)
-}
+// CommandRunner / RealCommandRunner alias the shared cmdrunner package so the
+// parser keeps its local names while the implementation lives in exactly one
+// place (see internal/cmdrunner). Tests can replace defaultCommandRunner with
+// a stub.
+type CommandRunner = cmdrunner.Runner
 
 // RealCommandRunner executes real commands via os/exec.
-type RealCommandRunner struct{}
-
-// Run executes the given command in the specified directory.
-func (r *RealCommandRunner) Run(dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return cmd.Output()
-}
+type RealCommandRunner = cmdrunner.Real
 
 // defaultCommandRunner is the runner used by parser functions.
-// Tests can replace this with a stub.
-var defaultCommandRunner CommandRunner = &RealCommandRunner{}
+var defaultCommandRunner CommandRunner = &cmdrunner.Real{}

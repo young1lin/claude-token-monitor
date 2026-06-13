@@ -12,10 +12,9 @@ func TestModelCollector_Collect(t *testing.T) {
 	collector := NewModelCollector()
 
 	tests := []struct {
-		name    string
-		input   interface{}
-		want    string
-		wantErr bool
+		name  string
+		input *StatusLineInput
+		want  string
 	}{
 		{
 			name: "valid input with display name",
@@ -28,8 +27,7 @@ func TestModelCollector_Collect(t *testing.T) {
 					ID:          "glm-4.7",
 				},
 			},
-			want:    "GLM-4.7",
-			wantErr: false,
+			want: "GLM-4.7",
 		},
 		{
 			name: "empty display name defaults to Claude",
@@ -42,20 +40,7 @@ func TestModelCollector_Collect(t *testing.T) {
 					ID:          "some-id",
 				},
 			},
-			want:    "Claude",
-			wantErr: false,
-		},
-		{
-			name:    "invalid input type",
-			input:   "not a StatusLineInput",
-			want:    "",
-			wantErr: true,
-		},
-		{
-			name:    "nil input",
-			input:   nil,
-			want:    "",
-			wantErr: true,
+			want: "Claude",
 		},
 	}
 
@@ -65,13 +50,8 @@ func TestModelCollector_Collect(t *testing.T) {
 			got, err := collector.Collect(tt.input, nil)
 
 			// Assert
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "invalid input type")
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -82,7 +62,6 @@ func TestTokenBarCollector_Collect(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     *StatusLineInput
-		wantErr   bool
 		wantColor string // ANSI color code prefix to check
 	}{
 		{
@@ -137,24 +116,12 @@ func TestTokenBarCollector_Collect(t *testing.T) {
 	}
 }
 
-func TestTokenBarCollector_Collect_InvalidInput(t *testing.T) {
-	collector := NewTokenBarCollector()
-
-	// Act
-	_, err := collector.Collect("invalid", nil)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input type")
-}
-
 func TestTokenInfoCollector_Collect(t *testing.T) {
 	collector := NewTokenInfoCollector()
 
 	tests := []struct {
 		name       string
 		input      *StatusLineInput
-		wantErr    bool
 		wantSubstr string
 	}{
 		{
@@ -364,7 +331,7 @@ func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
 		input := makeStatusInput(10_000, 0, 0, 200_000)
 		got, err := collector.Collect(input, nil)
 		require.NoError(t, err)
-			assert.Contains(t, got, "\x1b[1;92m", "bright green tier must be applied")
+		assert.Contains(t, got, "\x1b[1;92m", "bright green tier must be applied")
 		assert.Contains(t, got, "█", "must paint at least one filled block")
 	})
 }
@@ -448,17 +415,6 @@ func TestTokenInfoCollector_PercentColoured(t *testing.T) {
 			assert.NotContains(t, countChunk, "\x1b[", "absolute count must stay plain")
 		})
 	}
-}
-
-func TestTokenInfoCollector_Collect_InvalidInput(t *testing.T) {
-	collector := NewTokenInfoCollector()
-
-	// Act
-	_, err := collector.Collect(123, nil)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input type")
 }
 
 func TestFormatNumber(t *testing.T) {
@@ -567,17 +523,6 @@ func TestSessionTotalCollector_Collect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSessionTotalCollector_InvalidInput(t *testing.T) {
-	// Arrange
-	collector := NewSessionTotalCollector()
-
-	// Act
-	_, err := collector.Collect("invalid", nil)
-
-	// Assert
-	assert.Error(t, err)
 }
 
 func TestSessionTotalCollector_Properties(t *testing.T) {

@@ -1,7 +1,6 @@
 package content
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -117,13 +116,16 @@ func NewFolderCollector() *FolderCollector {
 	}
 }
 
-// Collect returns the project folder name
-func (c *FolderCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
+// Collect returns the project folder name, prefixed with the 📁 glyph. Like
+// every other collector, it emits display-ready content rather than leaving
+// the prefix for the entrypoint to bolt on. An empty cwd yields empty output
+// so the optional cell drops out of the grid.
+func (c *FolderCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+	name := getProjectName(statusInput.Cwd)
+	if name == "" {
+		return "", nil
 	}
-	return getProjectName(statusInput.Cwd), nil
+	return "📁 " + name, nil
 }
 
 // getProjectName extracts the project folder name

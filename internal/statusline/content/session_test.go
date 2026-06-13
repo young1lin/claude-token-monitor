@@ -93,17 +93,6 @@ func TestAgentCollector_Collect(t *testing.T) {
 	}
 }
 
-func TestAgentCollector_Collect_InvalidSummary(t *testing.T) {
-	collector := NewAgentCollector()
-
-	// Act
-	_, err := collector.Collect(nil, "invalid")
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid summary type")
-}
-
 func TestTodoCollector_Collect(t *testing.T) {
 	collector := NewTodoCollector()
 
@@ -165,17 +154,6 @@ func TestTodoCollector_Collect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestTodoCollector_Collect_InvalidSummary(t *testing.T) {
-	collector := NewTodoCollector()
-
-	// Act
-	_, err := collector.Collect(nil, "invalid")
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid summary type")
 }
 
 func TestToolsCollector_Collect(t *testing.T) {
@@ -243,17 +221,6 @@ func TestToolsCollector_Collect(t *testing.T) {
 	}
 }
 
-func TestToolsCollector_Collect_InvalidSummary(t *testing.T) {
-	collector := NewToolsCollector()
-
-	// Act
-	_, err := collector.Collect(nil, 123)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid summary type")
-}
-
 func TestSessionDurationCollector_Collect(t *testing.T) {
 	collector := NewSessionDurationCollector()
 
@@ -311,17 +278,6 @@ func TestSessionDurationCollector_Collect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSessionDurationCollector_Collect_InvalidSummary(t *testing.T) {
-	collector := NewSessionDurationCollector()
-
-	// Act
-	_, err := collector.Collect(nil, "invalid")
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid summary type")
 }
 
 func TestToolStatusDetailCollector_Collect(t *testing.T) {
@@ -443,17 +399,6 @@ func TestToolStatusDetailCollector_Collect(t *testing.T) {
 		require.NotEqual(t, -1, bashIdx)
 		assert.Less(t, agentIdx, bashIdx, "Agent should come before Bash (same count, alphabetical)")
 	})
-}
-
-func TestToolStatusDetailCollector_Collect_InvalidSummary(t *testing.T) {
-	collector := NewToolStatusDetailCollector()
-
-	// Act
-	_, err := collector.Collect(nil, "invalid")
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid summary type")
 }
 
 func TestFormatDuration(t *testing.T) {

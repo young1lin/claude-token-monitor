@@ -112,11 +112,7 @@ func NewQuotaCollector() *QuotaCollector {
 }
 
 // Collect returns subscription quota usage
-func (c *QuotaCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *QuotaCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	return getSubscriptionQuota(statusInput), nil
 }
 

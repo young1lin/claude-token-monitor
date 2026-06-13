@@ -16,7 +16,7 @@ type stubCollector struct {
 	cacheTTL    time.Duration
 	timeout     time.Duration
 	optional    bool
-	collectFunc func(input interface{}, summary interface{}) (string, error)
+	collectFunc func(input *StatusLineInput, summary *TranscriptSummary) (string, error)
 	callCount   int
 	mu          sync.Mutex
 }
@@ -25,7 +25,7 @@ func (s *stubCollector) Type() ContentType {
 	return s.contentType
 }
 
-func (s *stubCollector) Collect(input interface{}, summary interface{}) (string, error) {
+func (s *stubCollector) Collect(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.callCount++
@@ -176,7 +176,7 @@ func TestManager_Get(t *testing.T) {
 		// Arrange
 		m := NewManager()
 		stub := newStubCollector(ContentModel, 5*time.Second, false)
-		stub.collectFunc = func(input interface{}, summary interface{}) (string, error) {
+		stub.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 			return "", fmt.Errorf("collection failed")
 		}
 		m.Register(stub)
@@ -279,7 +279,7 @@ func TestGetAll_PanicRecovery(t *testing.T) {
 	m := NewManager()
 	normal := newStubCollector(ContentModel, 5*time.Second, false)
 	panicking := newStubCollector(ContentAgent, 5*time.Second, false)
-	panicking.collectFunc = func(input, summary interface{}) (string, error) {
+	panicking.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		panic("collector exploded")
 	}
 	m.RegisterAll(normal, panicking)
@@ -303,7 +303,7 @@ func TestGetAll_TimeoutSkipsSlowCollector(t *testing.T) {
 
 	slow := newStubCollector(ContentAgent, 5*time.Second, false)
 	blockCh := make(chan struct{})
-	slow.collectFunc = func(input, summary interface{}) (string, error) {
+	slow.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		<-blockCh // blocks until channel is closed
 		return "never", nil
 	}
@@ -324,7 +324,7 @@ func TestGetOptionalContent_PanicRecovery(t *testing.T) {
 	m := NewManager()
 	normal := newStubCollector(ContentModel, 5*time.Second, false)
 	panicking := newStubCollector(ContentAgent, 5*time.Second, true)
-	panicking.collectFunc = func(input, summary interface{}) (string, error) {
+	panicking.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		panic("optional collector exploded")
 	}
 	m.RegisterAll(normal, panicking)
@@ -348,7 +348,7 @@ func TestGetOptionalContent_TimeoutSkipsSlowCollector(t *testing.T) {
 
 	slow := newStubCollector(ContentAgent, 5*time.Second, true)
 	blockCh := make(chan struct{})
-	slow.collectFunc = func(input, summary interface{}) (string, error) {
+	slow.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		<-blockCh
 		return "never", nil
 	}
@@ -382,7 +382,7 @@ func TestCollectWithTimeout_ErrorCollector(t *testing.T) {
 	// Arrange
 	m := NewManager()
 	stub := newStubCollector(ContentModel, 5*time.Second, false)
-	stub.collectFunc = func(input, summary interface{}) (string, error) {
+	stub.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		return "", fmt.Errorf("something broke")
 	}
 	m.Register(stub)
@@ -407,7 +407,7 @@ func TestCollectWithTimeout_CustomCollectorTimeout(t *testing.T) {
 	custom := newStubCollector(ContentQuota, 5*time.Minute, true)
 	custom.timeout = 2 * time.Second
 	blockCh := make(chan struct{})
-	custom.collectFunc = func(input, summary interface{}) (string, error) {
+	custom.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		<-time.After(50 * time.Millisecond)
 		close(blockCh)
 		return "quota-data", nil
@@ -434,7 +434,7 @@ func TestCollectWithTimeout_CustomCollectorTimeoutExceeded(t *testing.T) {
 	custom := newStubCollector(ContentQuota, 5*time.Minute, true)
 	custom.timeout = 20 * time.Millisecond
 	blockCh := make(chan struct{})
-	custom.collectFunc = func(input, summary interface{}) (string, error) {
+	custom.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 		<-blockCh // blocks
 		return "never", nil
 	}
@@ -486,7 +486,7 @@ func TestManager_GetOptionalContent(t *testing.T) {
 	t.Run("optional collector with empty value is excluded", func(t *testing.T) {
 		m := NewManager()
 		stub := newStubCollector(ContentAgent, 5*time.Second, true)
-		stub.collectFunc = func(input interface{}, summary interface{}) (string, error) {
+		stub.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 			return "", nil // empty optional value
 		}
 		m.Register(stub)
@@ -508,7 +508,7 @@ func TestManager_GetOptionalContent(t *testing.T) {
 	t.Run("non-optional collector is always included even if empty", func(t *testing.T) {
 		m := NewManager()
 		stub := newStubCollector(ContentModel, 5*time.Second, false)
-		stub.collectFunc = func(input interface{}, summary interface{}) (string, error) {
+		stub.collectFunc = func(input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 			return "", nil // empty non-optional value
 		}
 		m.Register(stub)

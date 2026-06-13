@@ -40,11 +40,7 @@ func NewMemoryFilesCollector() *MemoryFilesCollector {
 }
 
 // Collect returns memory files information
-func (c *MemoryFilesCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *MemoryFilesCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	info := getMemoryFilesInfoCached(statusInput.Cwd)
 	return formatMemoryFilesDisplay(info), nil
 }

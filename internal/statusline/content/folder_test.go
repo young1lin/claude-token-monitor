@@ -166,40 +166,30 @@ func TestGetProjectName(t *testing.T) {
 
 func TestFolderCollector_Collect(t *testing.T) {
 	tests := []struct {
-		name      string
-		input     *StatusLineInput
-		expected  string
-		shouldErr bool
+		name     string
+		input    *StatusLineInput
+		expected string
 	}{
 		{
 			name: "Valid Linux path",
 			input: &StatusLineInput{
 				Cwd: "/home/user/minimal-mcp",
 			},
-			expected:  "minimal-mcp",
-			shouldErr: false,
+			expected: "📁 minimal-mcp",
 		},
 		{
 			name: "Valid Windows path",
 			input: &StatusLineInput{
 				Cwd: "C:\\Users\\User\\my-project",
 			},
-			expected:  "my-project",
-			shouldErr: false,
+			expected: "📁 my-project",
 		},
 		{
 			name: "Empty cwd",
 			input: &StatusLineInput{
 				Cwd: "",
 			},
-			expected:  "",
-			shouldErr: false,
-		},
-		{
-			name:      "Invalid input type",
-			input:     nil,
-			expected:  "",
-			shouldErr: true,
+			expected: "",
 		},
 	}
 
@@ -209,26 +199,14 @@ func TestFolderCollector_Collect(t *testing.T) {
 			collector := NewFolderCollector()
 
 			// Act
-			var result string
-			var err error
-			if tt.input != nil {
-				result, err = collector.Collect(tt.input, nil)
-			} else {
-				result, err = collector.Collect("invalid", nil)
-			}
+			result, err := collector.Collect(tt.input, nil)
 
 			// Assert
-			if tt.shouldErr {
-				if err == nil {
-					t.Errorf("expected error, got nil")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				if result != tt.expected {
-					t.Errorf("Collect() = %q; want %q", result, tt.expected)
-				}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("Collect() = %q; want %q", result, tt.expected)
 			}
 		})
 	}

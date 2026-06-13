@@ -19,11 +19,7 @@ func NewModelCollector() *ModelCollector {
 }
 
 // Collect returns the model display name
-func (c *ModelCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *ModelCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	modelName := statusInput.Model.DisplayName
 	if modelName == "" {
 		modelName = "Claude"
@@ -116,11 +112,7 @@ func contextAbsoluteColor(tokens int) string {
 }
 
 // Collect returns the token progress bar
-func (c *TokenBarCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *TokenBarCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	tokens := statusInput.ContextWindow.CurrentUsage.InputTokens +
 		statusInput.ContextWindow.CurrentUsage.CacheReadInputTokens +
 		statusInput.ContextWindow.CurrentUsage.OutputTokens
@@ -166,11 +158,7 @@ func NewTokenInfoCollector() *TokenInfoCollector {
 // shares the bar's 4-tier colour (see contextPercentColor) so the text and
 // the bar tell the same story; the absolute token counts stay uncoloured
 // because they are reference values, not warning signals.
-func (c *TokenInfoCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *TokenInfoCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	tokens := statusInput.ContextWindow.CurrentUsage.InputTokens +
 		statusInput.ContextWindow.CurrentUsage.CacheReadInputTokens +
 		statusInput.ContextWindow.CurrentUsage.OutputTokens
@@ -208,11 +196,7 @@ func NewSessionTotalCollector() *SessionTotalCollector {
 }
 
 // Collect returns session total cost and token usage
-func (c *SessionTotalCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *SessionTotalCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	totalIn := statusInput.ContextWindow.TotalInputTokens
 	totalOut := statusInput.ContextWindow.TotalOutputTokens
 	cost := statusInput.Cost.TotalCostUSD

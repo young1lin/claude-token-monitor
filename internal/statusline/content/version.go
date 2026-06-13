@@ -31,11 +31,17 @@ func NewClaudeVersionCollector() *ClaudeVersionCollector {
 // Fast path: CC 2.1.x+ supplies "version" in the stdin payload, so we just
 // echo it back. Fallback path: older CC builds don't send the field, so we
 // run `claude --version` and cache the result for 5 minutes.
-func (c *ClaudeVersionCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	if statusInput, ok := input.(*StatusLineInput); ok && statusInput != nil && statusInput.Version != "" {
-		return statusInput.Version, nil
+func (c *ClaudeVersionCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+	var version string
+	if statusInput != nil && statusInput.Version != "" {
+		version = statusInput.Version // stdin fast path — skip the subprocess fork
+	} else {
+		version = getClaudeVersionCached()
 	}
-	return getClaudeVersionCached(), nil
+	if version == "" {
+		return "", nil
+	}
+	return "v" + version, nil
 }
 
 // getClaudeVersionCached returns cached Claude Code version

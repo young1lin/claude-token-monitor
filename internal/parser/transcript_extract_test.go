@@ -3,7 +3,6 @@ package parser
 import (
 	"encoding/json"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -945,43 +944,5 @@ func TestAnalyzeTranscriptEntries_MultipleToolResultsSameID(t *testing.T) {
 		"Duplicate tool results for the same ID should both be counted")
 }
 
-// ---------------------------------------------------------------------------
-// RealCommandRunner.Run – integration test
-// ---------------------------------------------------------------------------
-
-func echoTestCommand(text string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		return "cmd", []string{"/c", "echo", text}
-	}
-	return "echo", []string{text}
-}
-
-func TestRealCommandRunner_EchoCommand(t *testing.T) {
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("hello")
-	out, err := runner.Run("", name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "hello")
-}
-
-func TestRealCommandRunner_WithDir(t *testing.T) {
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("test")
-	out, err := runner.Run(t.TempDir(), name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "test")
-}
-
-func TestRealCommandRunner_NonexistentCommand(t *testing.T) {
-	runner := &RealCommandRunner{}
-	_, err := runner.Run("", "nonexistent_command_xyz_123")
-	assert.Error(t, err)
-}
-
-func TestRealCommandRunner_EmptyDir(t *testing.T) {
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("no-dir")
-	out, err := runner.Run("", name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "no-dir")
-}
+// RealCommandRunner.Run is now covered by the canonical tests in the
+// internal/cmdrunner package, where the implementation lives.

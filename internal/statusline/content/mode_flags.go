@@ -1,7 +1,6 @@
 package content
 
 import (
-	"fmt"
 	"strings"
 	"time"
 )
@@ -49,10 +48,9 @@ func NewModeFlagsCollector() *ModeFlagsCollector {
 // Collect builds the indicator string from the stdin payload. Returns an
 // empty string when no flag is worth showing so the cell drops out of the
 // rendered grid.
-func (c *ModeFlagsCollector) Collect(input interface{}, _ interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok || statusInput == nil {
-		return "", fmt.Errorf("invalid input type")
+func (c *ModeFlagsCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+	if statusInput == nil {
+		return "", nil
 	}
 	return buildModeFlags(statusInput), nil
 }

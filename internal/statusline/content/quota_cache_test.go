@@ -895,18 +895,6 @@ func TestCurrentTimeCollector_Collect(t *testing.T) {
 	assert.Contains(t, result, ":")
 }
 
-func TestQuotaCollector_Collect_InvalidInput(t *testing.T) {
-	// Arrange
-	c := NewQuotaCollector()
-
-	// Act
-	_, err := c.Collect("not a *StatusLineInput", nil)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input type")
-}
-
 // ---------------------------------------------------------------------------
 // helpers for credential-based tests
 // ---------------------------------------------------------------------------

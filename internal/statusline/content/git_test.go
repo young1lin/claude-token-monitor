@@ -2,14 +2,10 @@ package content
 
 import (
 	"errors"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // StubCommandRunner returns canned responses for unit tests.
@@ -381,163 +377,6 @@ func TestGetGitStatus_EmptyLines(t *testing.T) {
 	}
 }
 
-// --- getGitRemoteStatus tests ---
-
-func TestGetGitRemoteStatus_EmptyCwd(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-
-	result := getGitRemoteStatus("")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_NoUpstream(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Errors: map[string]error{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": errors.New("no upstream"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_Ahead(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("3\t0\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "🔄 ↑3" {
-		t.Errorf("expected %q, got %q", "🔄 ↑3", result)
-	}
-}
-
-func TestGetGitRemoteStatus_Behind(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("0\t5\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "🔄 ↓5" {
-		t.Errorf("expected %q, got %q", "🔄 ↓5", result)
-	}
-}
-
-func TestGetGitRemoteStatus_Diverged(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("2\t3\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "🔄 ↑2↓3" {
-		t.Errorf("expected %q, got %q", "🔄 ↑2↓3", result)
-	}
-}
-
-func TestGetGitRemoteStatus_InSync(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("0\t0\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "" {
-		t.Errorf("expected empty for in-sync, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_EmptyRemoteBranch(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("@{u}\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_MalformedCount(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("bad\tformat\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	// Atoi fails, so ahead=0, behind=0 → empty
-	if result != "" {
-		t.Errorf("expected empty for malformed, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_WrongPartCount(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-			"git rev-list --left-right --count HEAD...@{u}":        []byte("only_one_part\n"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
-
-func TestGetGitRemoteStatus_RevListFails(t *testing.T) {
-	defer restoreDefaultRunner()
-	resetGitCache()
-	defaultCommandRunner = &StubCommandRunner{
-		Outputs: map[string][]byte{
-			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte("origin/main\n"),
-		},
-		Errors: map[string]error{
-			"git rev-list --left-right --count HEAD...@{u}": errors.New("fatal"),
-		},
-	}
-
-	result := getGitRemoteStatus("/project")
-	if result != "" {
-		t.Errorf("expected empty, got %q", result)
-	}
-}
-
 // --- getGitRemoteStatusRaw tests ---
 
 func TestGetGitRemoteStatusRaw_EmptyCwd(t *testing.T) {
@@ -744,12 +583,6 @@ func TestGitBranchCollector(t *testing.T) {
 	if result != "main" {
 		t.Errorf("expected %q, got %q", "main", result)
 	}
-
-	// Invalid input type
-	_, err = collector.Collect("wrong", nil)
-	if err == nil {
-		t.Error("expected error for invalid input type")
-	}
 }
 
 func TestGitStatusCollector(t *testing.T) {
@@ -776,12 +609,6 @@ func TestGitStatusCollector(t *testing.T) {
 	}
 	if result != "+1" {
 		t.Errorf("expected %q, got %q", "+1", result)
-	}
-
-	// Invalid input type
-	_, err = collector.Collect(42, nil)
-	if err == nil {
-		t.Error("expected error for invalid input type")
 	}
 }
 
@@ -815,12 +642,6 @@ func TestGitRemoteCollector(t *testing.T) {
 	}
 	if result != "" {
 		t.Errorf("expected empty remote with no upstream, got %q", result)
-	}
-
-	// Invalid input type
-	_, err = collector.Collect([]string{}, nil)
-	if err == nil {
-		t.Error("expected error for invalid input type")
 	}
 }
 
@@ -987,45 +808,8 @@ func TestFormatGitRemote(t *testing.T) {
 	}
 }
 
-// --- RealCommandRunner.Run integration test ---
-
-func echoTestCommand(text string) (string, []string) {
-	if runtime.GOOS == "windows" {
-		return "cmd", []string{"/c", "echo", text}
-	}
-	return "echo", []string{text}
-}
-
-func TestRealCommandRunner_EchoCommand(t *testing.T) {
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("hello")
-	out, err := runner.Run("", name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "hello")
-}
-
-func TestRealCommandRunner_WithDir(t *testing.T) {
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("test")
-	out, err := runner.Run(t.TempDir(), name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "test")
-}
-
-func TestRealCommandRunner_NonexistentCommand(t *testing.T) {
-	runner := &RealCommandRunner{}
-	_, err := runner.Run("", "nonexistent_command_xyz_123")
-	assert.Error(t, err)
-}
-
-func TestRealCommandRunner_EmptyDir(t *testing.T) {
-	// dir="" means cmd.Dir is not set, uses current working directory
-	runner := &RealCommandRunner{}
-	name, args := echoTestCommand("no-dir")
-	out, err := runner.Run("", name, args...)
-	require.NoError(t, err)
-	assert.Contains(t, string(out), "no-dir")
-}
+// RealCommandRunner.Run is now covered by the canonical tests in the
+// internal/cmdrunner package, where the implementation lives.
 
 // --- Benchmarks (still use real git, that's fine for benchmarks) ---
 

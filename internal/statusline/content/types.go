@@ -40,10 +40,16 @@ type Content struct {
 	CacheTTL time.Duration // Cache time
 }
 
-// ContentCollector is the interface for content collectors
+// ContentCollector is the interface for content collectors.
+//
+// Collect receives the already-parsed stdin payload and transcript summary as
+// concrete pointers. A collector that only needs one of them ignores the
+// other; both are guaranteed non-nil by the Manager in production (main.go
+// substitutes an empty TranscriptSummary when none is parsed), so collectors
+// only nil-check when they are also exercised directly in unit tests.
 type ContentCollector interface {
 	Type() ContentType
-	Collect(input interface{}, summary interface{}) (string, error)
+	Collect(input *StatusLineInput, summary *TranscriptSummary) (string, error)
 	CacheTTL() time.Duration
 	Timeout() time.Duration // Collector-specific timeout (0 = use manager default)
 	Optional() bool         // Returns true if content is optional (can be empty)

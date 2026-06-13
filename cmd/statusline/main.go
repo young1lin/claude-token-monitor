@@ -216,17 +216,10 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	content.SetClaudeAPIProxy(cfg.ResolveClaudeAPIProxy(proxyCLI))
 	content.SetUsageCacheTTL(cfg.GetUsageCacheTTL())
 
-	// Build content map using composers
+	// Build content map using composers. Each collector emits display-ready
+	// content (glyphs/prefixes included), so the entrypoint no longer post-
+	// processes individual cells here — it just hands the map to the layout.
 	contentMap := contentMgr.Compose(&input, summary)
-
-	// Apply folder prefix
-	if folder, ok := contentMap["folder"]; ok && folder != "" {
-		contentMap["folder"] = "📁 " + folder
-	}
-	// Apply version prefix
-	if version, ok := contentMap["claude-version"]; ok && version != "" {
-		contentMap["claude-version"] = "v" + version
-	}
 
 	// === Layer 2: Layout ===
 	defaultLayout := layout.DefaultLayout()

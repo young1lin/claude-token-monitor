@@ -99,10 +99,6 @@ func TestMemoryFilesCollector(t *testing.T) {
 	assert.Equal(t, ContentMemoryFiles, collector.Type())
 	assert.True(t, collector.Optional())
 
-	// Invalid input
-	_, err := collector.Collect("wrong", nil)
-	assert.Error(t, err)
-
 	// Valid input
 	result, err := collector.Collect(&StatusLineInput{Cwd: "/project"}, nil)
 	require.NoError(t, err)
@@ -289,10 +285,6 @@ func TestSkillsCollector(t *testing.T) {
 	collector := NewSkillsCollector()
 	assert.Equal(t, ContentSkills, collector.Type())
 	assert.True(t, collector.Optional())
-
-	// Invalid input
-	_, err := collector.Collect(123, nil)
-	assert.Error(t, err)
 
 	// Valid input
 	result, err := collector.Collect(&StatusLineInput{Cwd: "/project"}, nil)

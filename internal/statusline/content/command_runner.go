@@ -1,25 +1,15 @@
 package content
 
-import "os/exec"
+import "github.com/young1lin/claude-token-monitor/internal/cmdrunner"
 
-// CommandRunner executes a command in a directory and returns its output.
-// Tests can override defaultCommandRunner with a stub to avoid real process execution.
-type CommandRunner interface {
-	Run(dir string, name string, args ...string) ([]byte, error)
-}
+// CommandRunner / RealCommandRunner alias the shared cmdrunner package so the
+// content collectors keep their local names while the implementation lives in
+// exactly one place (see internal/cmdrunner). Tests can still override
+// defaultCommandRunner with a stub to avoid real process execution.
+type CommandRunner = cmdrunner.Runner
 
 // RealCommandRunner executes real commands via os/exec.
-type RealCommandRunner struct{}
+type RealCommandRunner = cmdrunner.Real
 
-// Run executes the given command in the specified directory.
-func (r *RealCommandRunner) Run(dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
-	if dir != "" {
-		cmd.Dir = dir
-	}
-	return cmd.Output()
-}
-
-// defaultCommandRunner is the runner used by all git functions.
-// Tests can replace this with a StubCommandRunner to avoid real git execution.
-var defaultCommandRunner CommandRunner = &RealCommandRunner{}
+// defaultCommandRunner is the runner used by all git/version functions.
+var defaultCommandRunner CommandRunner = &cmdrunner.Real{}

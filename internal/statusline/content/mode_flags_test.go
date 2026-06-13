@@ -161,10 +161,12 @@ func TestModeFlagsCollector_Collect_FromRealCCPayload(t *testing.T) {
 	assert.Equal(t, "💭 xhigh", stripANSI(got))
 }
 
-func TestModeFlagsCollector_Collect_InvalidInput(t *testing.T) {
-	_, err := NewModeFlagsCollector().Collect("not a StatusLineInput", nil)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid input type")
+func TestModeFlagsCollector_Collect_NilInput(t *testing.T) {
+	// A nil payload yields an empty (hidden) chip rather than an error, since
+	// mode-flags is optional and the layout drops empty cells.
+	got, err := NewModeFlagsCollector().Collect(nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }
 
 func TestModeFlagsCollector_Properties(t *testing.T) {

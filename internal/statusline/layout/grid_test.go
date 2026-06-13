@@ -120,7 +120,6 @@ func TestNewGrid(t *testing.T) {
 			assert.Equal(t, layout, grid.Layout, "layout should be stored in grid")
 			assert.Equal(t, tt.content, grid.Content, "content should be stored in grid")
 			assert.Equal(t, 4, len(grid.Rows), "grid should always have 4 rows")
-			assert.Equal(t, 4, len(grid.ColWidths), "grid should always have 4 column widths")
 
 			// Assert: each row has 4 columns initialized
 			for i, row := range grid.Rows {
@@ -231,11 +230,9 @@ func TestPopulate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			grid := &Grid{
-				Layout:    tt.layout,
-				Content:   tt.content,
-				Rows:      make([]GridRow, 4),
-				ColWidths: make([]int, 4),
-			}
+				Layout:  tt.layout,
+				Content: tt.content,
+				Rows:    make([]GridRow, 4)}
 			for i := range grid.Rows {
 				grid.Rows[i].Cells = make([]string, 4)
 			}
@@ -268,107 +265,6 @@ func TestPopulate(t *testing.T) {
 					}
 				}
 			}
-		})
-	}
-}
-
-// TestCalculateWidths verifies column widths are calculated correctly.
-func TestCalculateWidths(t *testing.T) {
-	tests := []struct {
-		name          string
-		rows          []GridRow
-		wantColWidths []int
-	}{
-		{
-			name: "empty grid has all zero widths",
-			rows: []GridRow{
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{0, 0, 0, 0},
-		},
-		{
-			name: "single row determines widths",
-			rows: []GridRow{
-				{Cells: []string{"abc", "de", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{3, 2, 0, 0},
-		},
-		{
-			name: "maximum width across rows is used",
-			rows: []GridRow{
-				{Cells: []string{"short", "B", "", ""}},
-				{Cells: []string{"much-longer", "Y", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{11, 1, 0, 0},
-		},
-		{
-			name: "all four columns have content",
-			rows: []GridRow{
-				{Cells: []string{"aa", "bb", "cc", "dd"}},
-				{Cells: []string{"aaa", "b", "c", "d"}},
-				{Cells: []string{"a", "bbb", "ccc", "ddd"}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{3, 3, 3, 3},
-		},
-		{
-			name: "wide characters counted correctly",
-			rows: []GridRow{
-				{Cells: []string{"ab", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{2, 0, 0, 0},
-		},
-		{
-			name: "multiple rows contributing to max width",
-			rows: []GridRow{
-				{Cells: []string{"x", "12345", "", ""}},
-				{Cells: []string{"yyy", "12", "", ""}},
-				{Cells: []string{"zz", "123", "", ""}},
-				{Cells: []string{"", "", "", ""}},
-			},
-			wantColWidths: []int{3, 5, 0, 0},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Arrange
-			// Ensure all rows have exactly 4 cells
-			paddedRows := make([]GridRow, 4)
-			for i := 0; i < 4; i++ {
-				if i < len(tt.rows) {
-					paddedRows[i] = tt.rows[i]
-				}
-				if len(paddedRows[i].Cells) < 4 {
-					cells := make([]string, 4)
-					copy(cells, paddedRows[i].Cells)
-					paddedRows[i].Cells = cells
-				}
-			}
-
-			grid := &Grid{
-				Layout:    &Layout{Cells: []Cell{}},
-				Content:   CellContent{},
-				Rows:      paddedRows,
-				ColWidths: make([]int, 4),
-			}
-
-			// Act
-			grid.calculateWidths()
-
-			// Assert
-			assert.Equal(t, tt.wantColWidths, grid.ColWidths, "column widths mismatch")
 		})
 	}
 }
@@ -459,11 +355,9 @@ func TestGetRowCount(t *testing.T) {
 			}
 
 			grid := &Grid{
-				Layout:    &Layout{Cells: []Cell{}},
-				Content:   CellContent{},
-				Rows:      paddedRows,
-				ColWidths: make([]int, 4),
-			}
+				Layout:  &Layout{Cells: []Cell{}},
+				Content: CellContent{},
+				Rows:    paddedRows}
 
 			// Act
 			count := grid.GetRowCount()

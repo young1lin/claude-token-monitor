@@ -1,7 +1,5 @@
 package layout
 
-import "github.com/mattn/go-runewidth"
-
 // DefaultLayout returns the default 4x4 grid layout
 // Uses composed content types for compact display
 // Grid structure:
@@ -37,10 +35,9 @@ func DefaultLayout() *Layout {
 // NewGrid creates a new grid with the given content
 func NewGrid(layout *Layout, content CellContent) *Grid {
 	grid := &Grid{
-		Layout:    layout,
-		Content:   content,
-		Rows:      make([]GridRow, 4), // 4 rows
-		ColWidths: make([]int, 4),     // 4 columns
+		Layout:  layout,
+		Content: content,
+		Rows:    make([]GridRow, 4), // 4 rows
 	}
 
 	// Initialize rows
@@ -50,9 +47,6 @@ func NewGrid(layout *Layout, content CellContent) *Grid {
 
 	// Populate grid with content
 	grid.populate()
-
-	// Calculate column widths
-	grid.calculateWidths()
 
 	return grid
 }
@@ -84,22 +78,6 @@ func (g *Grid) populate() {
 		} else {
 			g.Rows[cell.Position.Row].Cells[cell.Position.Col] = content
 		}
-	}
-}
-
-// calculateWidths calculates the width of each column
-func (g *Grid) calculateWidths() {
-	for col := 0; col < 4; col++ {
-		maxWidth := 0
-		for row := 0; row < 4; row++ {
-			content := g.Rows[row].Cells[col]
-			// Use runewidth to correctly handle emoji and wide characters
-			width := runewidth.StringWidth(content)
-			if width > maxWidth {
-				maxWidth = width
-			}
-		}
-		g.ColWidths[col] = maxWidth
 	}
 }
 

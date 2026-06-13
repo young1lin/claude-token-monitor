@@ -26,13 +26,13 @@ func TestClaudeVersionCollector(t *testing.T) {
 	assert.Equal(t, ContentClaudeVersion, collector.Type())
 	assert.True(t, collector.Optional())
 
-	// Collect
+	// Collect — the collector emits the display-ready "v"-prefixed string
 	result, err := collector.Collect(nil, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "claude", result)
+	assert.Equal(t, "vclaude", result)
 }
 
-func TestClaudeVersionCollector_InvalidInput(t *testing.T) {
+func TestClaudeVersionCollector_NoStdinVersionFallsBackToCommand(t *testing.T) {
 	defer restoreDefaultRunner()
 	clearVersionCache()
 	defaultCommandRunner = &StubCommandRunner{
@@ -43,10 +43,11 @@ func TestClaudeVersionCollector_InvalidInput(t *testing.T) {
 
 	collector := NewClaudeVersionCollector()
 
-	// Collect ignores input type — always returns version
-	result, err := collector.Collect("not StatusLineInput", nil)
+	// Input present but without a stdin "version" field → fall back to the
+	// `claude --version` subprocess path.
+	result, err := collector.Collect(&StatusLineInput{}, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "claude", result)
+	assert.Equal(t, "vclaude", result)
 }
 
 func TestClaudeVersionCollector_CommandFails(t *testing.T) {
@@ -178,7 +179,7 @@ func TestClaudeVersionCollector_PrefersStdinVersion(t *testing.T) {
 
 	got, err := NewClaudeVersionCollector().Collect(input, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "2.1.150", got)
+	assert.Equal(t, "v2.1.150", got)
 	assert.Equal(t, 0, runner.calls, "stdin fast path must not fork `claude --version`")
 }
 
@@ -194,6 +195,6 @@ func TestClaudeVersionCollector_FallsBackWhenStdinVersionEmpty(t *testing.T) {
 
 	got, err := NewClaudeVersionCollector().Collect(input, nil)
 	require.NoError(t, err)
-	assert.Equal(t, "2.1.150", got)
+	assert.Equal(t, "v2.1.150", got)
 	assert.Equal(t, 1, runner.calls, "fallback path must invoke the runner exactly once")
 }

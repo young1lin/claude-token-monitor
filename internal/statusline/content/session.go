@@ -20,11 +20,7 @@ func NewAgentCollector() *AgentCollector {
 }
 
 // Collect returns agent information
-func (c *AgentCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	transcriptSummary, ok := summary.(*TranscriptSummary)
-	if !ok {
-		return "", fmt.Errorf("invalid summary type")
-	}
+func (c *AgentCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
 	if len(transcriptSummary.Agents) == 0 {
 		return "", nil
 	}
@@ -54,11 +50,7 @@ func NewTodoCollector() *TodoCollector {
 }
 
 // Collect returns TODO progress
-func (c *TodoCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	transcriptSummary, ok := summary.(*TranscriptSummary)
-	if !ok {
-		return "", fmt.Errorf("invalid summary type")
-	}
+func (c *TodoCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
 	if transcriptSummary.TodoTotal == 0 {
 		return "", nil
 	}
@@ -81,11 +73,7 @@ func NewToolsCollector() *ToolsCollector {
 }
 
 // Collect returns tool usage statistics
-func (c *ToolsCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	transcriptSummary, ok := summary.(*TranscriptSummary)
-	if !ok {
-		return "", fmt.Errorf("invalid summary type")
-	}
+func (c *ToolsCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
 	if len(transcriptSummary.CompletedTools) == 0 {
 		return "", nil
 	}
@@ -109,11 +97,7 @@ func NewSessionDurationCollector() *SessionDurationCollector {
 }
 
 // Collect returns session duration
-func (c *SessionDurationCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	transcriptSummary, ok := summary.(*TranscriptSummary)
-	if !ok {
-		return "", fmt.Errorf("invalid summary type")
-	}
+func (c *SessionDurationCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
 	if transcriptSummary.SessionStart.IsZero() {
 		return "", nil
 	}
@@ -139,12 +123,7 @@ func NewToolStatusDetailCollector() *ToolStatusDetailCollector {
 }
 
 // Collect returns per-tool call breakdown with success/failure indicators
-func (c *ToolStatusDetailCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	transcriptSummary, ok := summary.(*TranscriptSummary)
-	if !ok {
-		return "", fmt.Errorf("invalid summary type")
-	}
-
+func (c *ToolStatusDetailCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
 	if len(transcriptSummary.CompletedTools) == 0 && len(transcriptSummary.FailedTools) == 0 {
 		return "", nil
 	}

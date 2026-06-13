@@ -43,11 +43,7 @@ func NewGitBranchCollector() *GitBranchCollector {
 }
 
 // Collect returns the current git branch
-func (c *GitBranchCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *GitBranchCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	return getGitBranchCached(statusInput.Cwd), nil
 }
 
@@ -64,11 +60,7 @@ func NewGitStatusCollector() *GitStatusCollector {
 }
 
 // Collect returns the git file status
-func (c *GitStatusCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *GitStatusCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	return getGitStatusCached(statusInput.Cwd), nil
 }
 
@@ -85,11 +77,7 @@ func NewGitRemoteCollector() *GitRemoteCollector {
 }
 
 // Collect returns the git remote status
-func (c *GitRemoteCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
+func (c *GitRemoteCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	return getGitRemoteStatusCached(statusInput.Cwd), nil
 }
 
@@ -281,46 +269,6 @@ func getGitStatus(cwd string) (int, int, int) {
 	}
 
 	return added, deleted, modified
-}
-
-// getGitRemoteStatus returns the remote branch sync status.
-func getGitRemoteStatus(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-
-	output, err := defaultCommandRunner.Run(cwd, "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	if err != nil {
-		return ""
-	}
-
-	remoteBranch := strings.TrimSpace(string(output))
-	if remoteBranch == "" || remoteBranch == "@{u}" {
-		return ""
-	}
-
-	output, err = defaultCommandRunner.Run(cwd, "git", "rev-list", "--left-right", "--count", "HEAD...@{u}")
-	if err != nil {
-		return ""
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
-	if len(parts) != 2 {
-		return ""
-	}
-
-	ahead, _ := strconv.Atoi(strings.TrimSpace(parts[0]))
-	behind, _ := strconv.Atoi(strings.TrimSpace(parts[1]))
-
-	if ahead > 0 && behind > 0 {
-		return fmt.Sprintf("🔄 ↑%d↓%d", ahead, behind)
-	} else if ahead > 0 {
-		return fmt.Sprintf("🔄 ↑%d", ahead)
-	} else if behind > 0 {
-		return fmt.Sprintf("🔄 ↓%d", behind)
-	}
-
-	return ""
 }
 
 // formatGitRemote formats git remote status

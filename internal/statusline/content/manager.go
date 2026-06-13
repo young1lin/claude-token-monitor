@@ -61,7 +61,7 @@ func (m *Manager) GetComposer(name string) (Composer, bool) {
 }
 
 // Get retrieves a single content item with caching
-func (m *Manager) Get(contentType ContentType, input interface{}, summary interface{}) (string, error) {
+func (m *Manager) Get(contentType ContentType, input *StatusLineInput, summary *TranscriptSummary) (string, error) {
 	collector, ok := m.collectors[contentType]
 	if !ok {
 		return "", fmt.Errorf("no collector registered for type: %s", contentType)
@@ -95,7 +95,7 @@ func (m *Manager) Get(contentType ContentType, input interface{}, summary interf
 
 // collectWithTimeout runs a collector with timeout and panic recovery.
 // Returns ("", false) if the collector times out, panics, or returns an error.
-func (m *Manager) collectWithTimeout(ct ContentType, input, summary interface{}) (string, bool) {
+func (m *Manager) collectWithTimeout(ct ContentType, input *StatusLineInput, summary *TranscriptSummary) (string, bool) {
 	type collectResult struct {
 		value string
 		err   error
@@ -126,7 +126,7 @@ func (m *Manager) collectWithTimeout(ct ContentType, input, summary interface{})
 }
 
 // GetAll retrieves all content items in parallel with timeout and panic recovery.
-func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType]string {
+func (m *Manager) GetAll(input *StatusLineInput, summary *TranscriptSummary) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -149,7 +149,7 @@ func (m *Manager) GetAll(input interface{}, summary interface{}) map[ContentType
 
 // GetOptionalContent returns content for optional collectors that have values, in parallel
 // with timeout and panic recovery.
-func (m *Manager) GetOptionalContent(input interface{}, summary interface{}) map[ContentType]string {
+func (m *Manager) GetOptionalContent(input *StatusLineInput, summary *TranscriptSummary) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -177,7 +177,7 @@ func (m *Manager) GetOptionalContent(input interface{}, summary interface{}) map
 
 // Compose retrieves all content and applies composers to generate combined content
 // This returns a CellContent map suitable for use with the layout system
-func (m *Manager) Compose(input interface{}, summary interface{}) layout.CellContent {
+func (m *Manager) Compose(input *StatusLineInput, summary *TranscriptSummary) layout.CellContent {
 	// First, get all individual content pieces
 	individualContent := m.GetAll(input, summary)
 

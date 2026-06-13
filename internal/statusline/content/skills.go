@@ -22,12 +22,7 @@ func NewSkillsCollector() *SkillsCollector {
 }
 
 // Collect returns skills display string
-func (c *SkillsCollector) Collect(input interface{}, summary interface{}) (string, error) {
-	statusInput, ok := input.(*StatusLineInput)
-	if !ok {
-		return "", fmt.Errorf("invalid input type")
-	}
-
+func (c *SkillsCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	userCount := getUserSkillsCount()
 	projectCount := getProjectSkillsCount(statusInput.Cwd)
 
