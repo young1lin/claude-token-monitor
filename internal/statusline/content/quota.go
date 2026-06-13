@@ -137,7 +137,7 @@ func getSubscriptionUsage(input *StatusLineInput) *UsageData {
 // every mainstream Claude/Codex statusline (ohugonnot, lee-fuhr, et al.):
 //
 //	d <= 0          → "now"
-//	d < 1m          → "<1m"
+//	d < 1m          → "Xs"        (e.g. "56s"; truncated to whole seconds)
 //	d < 1h          → "Xm"        (e.g. "45m")
 //	d < 24h         → "XhYm"      (e.g. "4h32m")
 //	d >= 24h        → "XdYh"      (e.g. "1d22h", "6d4h")
@@ -146,7 +146,10 @@ func formatResetCountdown(d time.Duration) string {
 		return "now"
 	}
 	if d < time.Minute {
-		return "<1m"
+		// Sub-minute resets show whole seconds (truncated, like the
+		// minute/hour branches) — "56s" reads better than "<1m" in the
+		// final minute before a 5h/7d window flips.
+		return fmt.Sprintf("%ds", int(d/time.Second))
 	}
 	totalHours := int(d / time.Hour)
 	totalMinutes := int(d/time.Minute) % 60

@@ -942,7 +942,7 @@ func mockNow(t *testing.T, now time.Time) {
 }
 
 // ---------------------------------------------------------------------------
-// formatResetCountdown – cascade between m / hm / dh / now / <1m
+// formatResetCountdown – cascade between s / m / hm / dh / now
 // ---------------------------------------------------------------------------
 
 func TestFormatResetCountdown(t *testing.T) {
@@ -953,7 +953,10 @@ func TestFormatResetCountdown(t *testing.T) {
 	}{
 		{"already-reset zero", 0, "now"},
 		{"already-reset negative", -5 * time.Minute, "now"},
-		{"sub-minute", 30 * time.Second, "<1m"},
+		{"sub-minute seconds", 30 * time.Second, "30s"},
+		{"sub-minute near one minute", 56 * time.Second, "56s"},
+		{"one second", time.Second, "1s"},
+		{"sub-second truncates to zero", 500 * time.Millisecond, "0s"},
 		{"exactly one minute", time.Minute, "1m"},
 		{"under an hour", 45 * time.Minute, "45m"},
 		{"just over an hour", time.Hour + 5*time.Minute, "1h5m"},
