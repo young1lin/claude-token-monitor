@@ -384,4 +384,75 @@ claude plugin marketplace update claude-token-monitor --auto-update true
 
 ---
 
+## 实现方案对比与性能基准
+
+statusline 采用 **"fire-and-forget"** 执行模型：Claude Code 每次刷新状态栏都会**重新拉起一个新进程**。这意味着语言运行时的**启动开销**被放大到了每一次调用——这是评估任何替代实现时最关键的指标。
+
+为验证"为什么主力分发物是 Go 编译的原生二进制，而非脚本"，本项目实测了 5 种实现。所有数据均在 **Windows 11 + 同一终端**下取得，使用同一份 stdin 输入（`test_input2.json`）、同一 git 工作区状态，每个实现连续跑 7 次取平均（已 warmup，取稳态值）。
+
+### 性能基准
+
+| 实现 | 平均延迟 | min / max | 相对 Go | 运行时依赖 | 平台 |
+|------|---------|-----------|---------|-----------|------|
+| **Go 原生二进制** | **156 ms** | 151 / 162 | 1× | 无（单文件） | 全平台 |
+| Node.js (`nodejs/`) | 176 ms | 172 / 179 | ×1.13 | 需 Node.js ≥ 18 | 全平台 |
+| Python (`python/`) | 193 ms | 187 / 204 | ×1.24 | 需 Python 3.8+ | 全平台 |
+| PowerShell | ~2130 ms | — | ×13.7 | 需 pwsh | Windows 为主 |
+| Bash (`statusline/statusline.sh`) | 13312 ms | 10037 / 17861 | ×85 | 需 bash + jq | Linux/macOS 为主 |
+
+> 四者共享约 75ms 的 `git` 子进程开销，因此 Go / Node / Python 都落在 150–200ms 区间，差异主要来自语言本身的启动与解析/渲染。Bash / PowerShell 的巨大差距则源于运行时的进程启动模型。
+
+### 为什么不用 Bash 脚本
+
+- **Git Bash 即 msys2**，其模拟的 POSIX `fork/exec` 是性能黑洞——每次 spawn 子进程（`jq` / `git` / `grep` / `sed` / `date`）的开销是原生 Linux 的几十倍。
+- Bash 版重度依赖外部命令，每次刷新要 fork 数十次，实测 **13.3 秒**（慢 85×），**Windows 下完全不可用**。
+- 原生 Linux / macOS 上 fork 是微秒级，Bash 版会快得多；但本项目主力用户在 Windows，msys2 直接出局。
+- `statusline/statusline.sh` 仅作为**参考实现**保留，不作为分发物。
+
+### 为什么不用 PowerShell 脚本
+
+- 每次启动要加载 **.NET CLR**，纯启动就 **0.4–1.4s**——fire-and-forget 模型下这是致命的、无法优化的固定开销。
+- 实测 **2.1 秒**（慢 13.7×），且 pwsh 以 Windows 为主，macOS / Linux 默认不带。
+- 早期的 `*.ps1` 单文件原型与模块化版本均已从项目中**移除**。
+
+### 为什么不用 Node.js
+
+- 性能其实**接近 Go**（176ms，仅慢 13%）——V8 启动约 90ms，远好于 .NET CLR，是脚本语言里最有希望逼近原生的。
+- **但用户电脑可能没有安装 Node.js**。statusline 的核心价值之一是"下载一个二进制就能用"，引入 Node.js 运行时会破坏这一零依赖分发模型，也增加版本与环境管理负担。
+- `nodejs/` 目录作为**分层架构的参考实现**保留（零 npm 依赖，仅用标准库），便于对照阅读与教学，但不作为主力分发。
+
+### 为什么不用 Python
+
+1. **慢**：193ms（慢 24%）。CPython 是解释执行，叠加 `git` subprocess 调用，比 Node.js 还慢。
+2. **用户电脑可能没装 Python**：同样是运行时依赖问题，且 Python 版本碎片化严重（3.8 / 3.12 / 3.13 并存），shebang 与包管理在 Windows 上尤其麻烦。
+
+`python/` 目录同样作为**参考实现**保留（零第三方依赖，仅用标准库）。
+
+### 结论
+
+Go 原生二进制是**唯一同时满足**以下四点的方案：
+
+- ✅ **最快**（156ms，warm 缓存命中可到 10–20ms）
+- ✅ **零运行时依赖**（单文件，不要求用户预装任何运行时）
+- ✅ **单文件分发**（`go build` 产出独立的 exe / ELF / Mach-O）
+- ✅ **真跨平台**（Windows / macOS / Linux 原生编译，无需模拟层）
+
+Node.js / Python 版虽性能可用，但都引入运行时依赖；Bash / PowerShell 版的性能差距已到不可用程度。因此**主力分发物固定为 Go 编译的原生二进制**，`nodejs/`、`python/`、`statusline/`（Bash）三个脚本目录仅作为分层架构的参考实现与教学对照保留。
+
+复现基准测试：
+
+```bash
+# 同一 input、同一 git 状态下，各实现连续跑 7 次取平均
+export TIMEFORMAT='%R'
+for impl in "./statusline.exe" \
+            "node nodejs/statusline.js" \
+            "python python/statusline.py" \
+            "bash statusline/statusline.sh"; do
+  echo "--- $impl ---"
+  for i in $(seq 1 7); do { time $impl < test_input2.json > /dev/null 2>&1; } 2>&1; done
+done
+```
+
+---
+
 [English Documentation](./README.en-US.md)
