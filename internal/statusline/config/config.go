@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,10 @@ type FormatConfig struct {
 	ProgressBar string `yaml:"progressBar"` // "ascii" or "braille"
 	TimeFormat  string `yaml:"timeFormat"`  // "12h" or "24h"
 	Compact     bool   `yaml:"compact"`
+	// IdleWarnSeconds is how many seconds of transcript inactivity before the
+	// time cell appends a "⏰ Xm" staleness marker. Default 300 (5 min). The
+	// STATUSLINE_IDLE_WARN_SECONDS env var overrides this; 0 disables it.
+	IdleWarnSeconds int `yaml:"idleWarnSeconds"`
 }
 
 // ContentConfig controls content composition
@@ -79,6 +84,10 @@ type ComposerConfig struct {
 var configFileNames = []string{"statusline.yml", "statusline.yaml"}
 
 const defaultUsageCacheTTLSecs = 90
+
+// defaultIdleWarnSecs is the default inactivity threshold (in seconds) before
+// the time cell shows a "⏰ Xm" staleness marker. 300s = 5 minutes.
+const defaultIdleWarnSecs = 300
 
 // Load loads configuration from file with priority:
 //  1. Project-level: <projectDir>/.claude/statusline.yml then .yaml
@@ -155,9 +164,10 @@ func DefaultConfig() *Config {
 			Hide:       nil,
 		},
 		Format: FormatConfig{
-			ProgressBar: "braille",
-			TimeFormat:  "24h",
-			Compact:     false,
+			ProgressBar:     "braille",
+			TimeFormat:      "24h",
+			Compact:         false,
+			IdleWarnSeconds: defaultIdleWarnSecs, // ⏰ marker after 5 min of inactivity
 		},
 		Content: ContentConfig{
 			Composers: nil, // Use default built-in composers
@@ -264,6 +274,25 @@ func (c *Config) GetUsageCacheTTL() time.Duration {
 		return time.Duration(defaultUsageCacheTTLSecs) * time.Second
 	}
 	return time.Duration(c.Cache.UsageTTLSeconds) * time.Second
+}
+
+// GetIdleWarnThreshold returns the inactivity threshold after which the time
+// cell appends a "⏰ Xm" staleness marker. Precedence:
+//  1. STATUSLINE_IDLE_WARN_SECONDS env  (seconds; 0 disables the marker)
+//  2. format.idleWarnSeconds YAML       (must be > 0)
+//  3. default 300s (5 min)
+//
+// Returns 0 when disabled via env so the caller can skip rendering entirely.
+func (c *Config) GetIdleWarnThreshold() time.Duration {
+	if env := strings.TrimSpace(os.Getenv("STATUSLINE_IDLE_WARN_SECONDS")); env != "" {
+		if secs, err := strconv.Atoi(env); err == nil {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	if c.Format.IdleWarnSeconds > 0 {
+		return time.Duration(c.Format.IdleWarnSeconds) * time.Second
+	}
+	return time.Duration(defaultIdleWarnSecs) * time.Second
 }
 
 // GetComposerConfig returns the configuration for a custom composer by name

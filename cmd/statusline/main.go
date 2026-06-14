@@ -215,6 +215,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	// env > network.claudeAPIProxy YAML, all resolved in one place.
 	content.SetClaudeAPIProxy(cfg.ResolveClaudeAPIProxy(proxyCLI))
 	content.SetUsageCacheTTL(cfg.GetUsageCacheTTL())
+	content.SetIdleWarnThreshold(cfg.GetIdleWarnThreshold())
 
 	// Build content map using composers. Each collector emits display-ready
 	// content (glyphs/prefixes included), so the entrypoint no longer post-

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Table-driven test for getPlanName
@@ -191,4 +192,68 @@ func TestGetLocalTimeZoneName(t *testing.T) {
 			assert.NotEmpty(t, result)
 		})
 	}
+}
+
+func TestCurrentTimeCollector_IdleSuffix(t *testing.T) {
+	// Arrange — pin nowFn AND the threshold so the table is independent of
+	// any config/env state. Restore the threshold afterwards (FIRST: no
+	// shared mutable state between tests).
+	collector := NewCurrentTimeCollector()
+	fixedNow := time.Date(2026, 6, 14, 1, 20, 0, 0, time.Local)
+	mockNow(t, fixedNow)
+	prevThreshold := getIdleWarnThreshold()
+	SetIdleWarnThreshold(5 * time.Minute)
+	t.Cleanup(func() { SetIdleWarnThreshold(prevThreshold) })
+	base := "🕐 " + fixedNow.Format("2006-01-02 15:04")
+
+	tests := []struct {
+		name       string
+		summary    *TranscriptSummary
+		wantSuffix string
+	}{
+		{"nil summary: no marker", nil, ""},
+		{"zero SessionEnd: no marker", &TranscriptSummary{}, ""},
+		{"active 2m ago: no marker", &TranscriptSummary{SessionEnd: fixedNow.Add(-2 * time.Minute)}, ""},
+		{"exactly 5m: no marker (strictly-greater threshold)", &TranscriptSummary{SessionEnd: fixedNow.Add(-5 * time.Minute)}, ""},
+		{"idle 6m: yellow marker", &TranscriptSummary{SessionEnd: fixedNow.Add(-6 * time.Minute)}, " \x1b[1;33m⏰ 6m\x1b[0m"},
+		{"idle 20m: red marker", &TranscriptSummary{SessionEnd: fixedNow.Add(-20 * time.Minute)}, " \x1b[1;31m⏰ 20m\x1b[0m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Act
+			got, err := collector.Collect(nil, tt.summary)
+
+			// Assert
+			require.NoError(t, err)
+			assert.Equal(t, base+tt.wantSuffix, got)
+		})
+	}
+}
+
+func TestCurrentTimeCollector_IdleThresholdConfigurable(t *testing.T) {
+	// Arrange — pin time; the threshold is the variable under test.
+	collector := NewCurrentTimeCollector()
+	fixedNow := time.Date(2026, 6, 14, 1, 20, 0, 0, time.Local)
+	mockNow(t, fixedNow)
+	prev := getIdleWarnThreshold()
+	t.Cleanup(func() { SetIdleWarnThreshold(prev) })
+
+	// 2 min idle: below the 5m default, above a 1m threshold.
+	summary := &TranscriptSummary{SessionEnd: fixedNow.Add(-2 * time.Minute)}
+
+	// Act + Assert — default 5m: no marker for a 2m idle.
+	SetIdleWarnThreshold(5 * time.Minute)
+	got, _ := collector.Collect(nil, summary)
+	assert.NotContains(t, got, "⏰", "2m idle under the 5m default shows no marker")
+
+	// Lowered to 1m: the same 2m idle now triggers the marker.
+	SetIdleWarnThreshold(time.Minute)
+	got, _ = collector.Collect(nil, summary)
+	assert.Contains(t, got, "⏰ 2m", "2m idle exceeds the lowered 1m threshold")
+
+	// Disabled (<=0): the marker never renders, even when idle.
+	SetIdleWarnThreshold(0)
+	got, _ = collector.Collect(nil, summary)
+	assert.NotContains(t, got, "⏰", "threshold<=0 disables the marker")
 }

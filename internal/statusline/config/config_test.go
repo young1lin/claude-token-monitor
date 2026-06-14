@@ -1070,3 +1070,36 @@ func TestLoad_YAMLAndYMLBothSupported(t *testing.T) {
 		}
 	})
 }
+
+func TestGetIdleWarnThreshold(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string // STATUSLINE_IDLE_WARN_SECONDS; "" behaves as unset for the getter
+		yaml int    // Format.IdleWarnSeconds
+		want time.Duration
+	}{
+		{"default when nothing set", "", 0, 300 * time.Second},
+		{"env overrides yaml and default", "120", 600, 120 * time.Second},
+		{"yaml used when no env", "", 600, 600 * time.Second},
+		{"env zero disables", "0", 600, 0},
+		{"yaml<=0 falls back to default", "", 0, 300 * time.Second},
+		{"invalid env falls through to yaml", "garbage", 600, 600 * time.Second},
+		{"invalid env falls through to default", "garbage", 0, 300 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Arrange — t.Setenv("") leaves the var empty; the getter trims
+			// and treats "" as unset, so this stands in for "not configured".
+			t.Setenv("STATUSLINE_IDLE_WARN_SECONDS", tt.env)
+			c := &Config{Format: FormatConfig{IdleWarnSeconds: tt.yaml}}
+
+			// Act
+			got := c.GetIdleWarnThreshold()
+
+			// Assert
+			if got != tt.want {
+				t.Errorf("GetIdleWarnThreshold() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
