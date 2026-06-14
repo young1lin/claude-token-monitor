@@ -13,7 +13,7 @@ Real-time token usage statusline for Claude Code.
 /claude-token-monitor:setup
 ```
 
-## What's New (v0.2.7)
+## What's New (v0.2.8)
 
 ### Stdin Fast Path (Skip the OAuth Rate Limit)
 
@@ -41,7 +41,7 @@ The token cell now ends with a runtime-state chip:
 
 The chip is hidden only when thinking, fast mode, and effort are all unreported.
 
-> **v0.2.7**: the effort chip now shows every tier Claude Code reports — `max` (selecting max previously showed no chip), the default `medium` (now rendered in cyan), and any unknown tier as its raw label; it stays hidden only when CC doesn't report `effort.level` (older builds).
+> **v0.2.8**: the time cell now shows an idle/staleness marker `⏰ Xm` after 5 minutes of inactivity (threshold configurable / disableable — see Configuration below); the quota reset countdown shows seconds in its final minute (`↻ 56s` instead of `<1m`).
 
 ## Configuration
 
@@ -58,6 +58,8 @@ format:
   progressBar: braille  # "braille" or "ascii"
   timeFormat: 24h       # "12h" or "24h"
   compact: false
+  idleWarnSeconds: 300  # seconds of inactivity before the time cell shows a ⏰ marker (default 300 = 5 min). 0 disables.
+                        # Overridable by the STATUSLINE_IDLE_WARN_SECONDS env var (higher precedence).
 
 # Network (v0.2.1+).
 # Applies ONLY to the OAuth-usage request to api.anthropic.com — all other

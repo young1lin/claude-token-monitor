@@ -23,7 +23,7 @@ Claude Code 实时 Token 使用状态栏插件。
 /claude-token-monitor:setup
 ```
 
-## 新功能（v0.2.7）
+## 新功能（v0.2.8）
 
 ### Stdin 快路径（避开 OAuth 限流）
 
@@ -51,7 +51,7 @@ Token 单元格末尾会显示当前会话的运行时状态：
 
 thinking、fast、effort 都没有内容时该 chip 隐藏（旧版 CC 不发 `effort.level` 时不显示档位）。
 
-> **v0.2.7**：effort chip 现在显示 CC 上报的所有档位——新增 `max`（此前选 max 不显示），默认档 `medium` 也照常显示（青色），未知档位原样显示；仅当 CC 未上报 `effort.level`（旧版）时才隐藏。
+> **v0.2.8**：时间格新增空闲提示 `⏰ Xm`（超过 5 分钟无 transcript 活动时显示，阈值可配置/可关闭，见下方配置）；额度重置倒计时最后一分钟改显示秒数（`↻ 56s` 而非 `<1m`）。
 
 ## 配置
 
@@ -68,6 +68,8 @@ format:
   progressBar: braille  # "braille" 或 "ascii"
   timeFormat: 24h       # "12h" 或 "24h"
   compact: false
+  idleWarnSeconds: 300  # 闲置多少秒后时间格显示 ⏰ 提示（默认 300=5 分钟）。0 关闭。
+                        # 也可用 STATUSLINE_IDLE_WARN_SECONDS 环境变量覆盖（优先级更高）。
 
 # 网络配置（v0.2.1+）
 # 仅作用于对 api.anthropic.com 的 OAuth usage 请求，

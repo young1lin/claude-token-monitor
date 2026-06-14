@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-06-14
+
+### Added
+- **Idle/staleness marker on the time cell.** When the session has had no
+  transcript activity for longer than a threshold, the time cell trails a
+  `⏰ Xm` marker as a nudge to manually compact context. The threshold
+  defaults to 300s (5 min); the marker is yellow past the threshold, red past
+  3×. Configurable via the `STATUSLINE_IDLE_WARN_SECONDS` env var or the
+  `format.idleWarnSeconds` YAML field; `0` disables it. Note: the statusline
+  only refreshes on Claude Code triggers (new message / token change), so the
+  marker shows when you return from being away and clears once a new
+  transcript entry lands — it is a staleness hint, not a live watchdog.
+- **时间格新增空闲/陈旧提示。** 会话超过阈值没有 transcript 活动时，时间格末尾显示
+  `⏰ Xm`，提示手动压缩上下文。阈值默认 300s（5 分钟），超过变黄、超过 3× 变红；可通过
+  环境变量 `STATUSLINE_IDLE_WARN_SECONDS` 或 YAML `format.idleWarnSeconds` 配置，设 `0`
+  关闭。注意：状态栏只在 CC 触发时刷新（新消息 / token 变化），所以它在你离开回来时显示、
+  一旦有新 transcript 条目就消失——是陈旧度提示，不是实时监控。
+- **Quota reset countdown shows seconds under a minute.** The `↻` reset
+  countdown previously collapsed any sub-minute reset to `<1m`; it now shows
+  whole seconds, e.g. `↻ 56s`, in the final minute before a 5h/7d window
+  flips. The formatter is shared, so both the Anthropic and GLM windows pick
+  it up from one change.
+- **额度重置倒计时最后一分钟显示秒数。** `↻` 重置倒计时此前把任何小于 1 分钟的重置
+  统一显示为 `<1m`；现在显示整秒，如 `↻ 56s`，在 5h/7d 窗口翻转前更精确。共用同一
+  格式化函数，Anthropic 与 GLM 一次改动同时生效。
+
+### Internal
+- **Collector layer cleanup (behavior unchanged).** The content-collector
+  interface and `Manager` methods now take typed `*StatusLineInput` /
+  `*TranscriptSummary` instead of `interface{}`, dropping the per-collector
+  type-assertion boilerplate. The two duplicated `CommandRunner` definitions
+  collapse into a new `internal/cmdrunner` package (old names retained via
+  type aliases). Cell prefixes (`📁 `, `v`) moved from `main.go` into their
+  collectors. Dead code removed: `getGitRemoteStatus`, and `Grid.ColWidths` /
+  `calculateWidths` (the renderer recomputes column widths itself with an
+  ANSI-aware width). Output is byte-for-byte unchanged.
+- **采集层整洁化（行为不变）。** content collector 接口与 `Manager` 方法改为强类型
+  `*StatusLineInput` / `*TranscriptSummary`，删掉每个 collector 的类型断言样板。两份重复的
+  `CommandRunner` 合并到新包 `internal/cmdrunner`（旧名通过类型别名保留）。单元格前缀
+  （`📁 `、`v`）从 `main.go` 移进各自 collector。删除死码：`getGitRemoteStatus`、
+  `Grid.ColWidths` / `calculateWidths`（renderer 用 ANSI 感知宽度自己重算列宽）。输出逐字节
+  不变。
+
+### Docs
+- **Performance benchmark added to README.** Documents the fire-and-forget
+  startup-cost rationale and a measured Windows benchmark (Go 156ms vs Node
+  176ms / Python 193ms / PowerShell ~2.1s / Bash ~13.3s), explaining why the
+  compiled Go binary is the primary distribution while the script dirs stay
+  as reference implementations.
+- **README 新增性能基准。** 说明 fire-and-forget 模型下启动开销是关键指标，并给出
+  Windows 实测基准（Go 156ms vs Node 176ms / Python 193ms / PowerShell ~2.1s / Bash
+  ~13.3s），解释为何主力分发是 Go 编译的原生二进制、脚本目录仅作参考实现。
+
 ## [0.2.7] - 2026-06-05
 
 ### Fixed
