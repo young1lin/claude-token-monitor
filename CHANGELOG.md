@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-06-19
+
+### Added
+- **🌳 tree icon when the cwd is a linked git worktree.** The git branch cell
+  swaps `🌿` for `🌳` when the current directory is a linked worktree, detected
+  via `git rev-parse --git-dir --git-common-dir` (unequal git-dir / common-dir
+  means a linked worktree). The name after the icon is still the worktree's
+  checked-out branch; the worktree directory name already shows in the `📁`
+  cell, so nothing is duplicated. Detection runs inside the existing parallel
+  git fetch under the 5s cache, so there is no extra subprocess cost. A new
+  "Git Worktree Support" section in the README documents the
+  `EnterWorktree` / `ExitWorktree` workflow (create / enter / exit).
+- **cwd 是 linked git worktree 时显示 `🌳` 树图标。** 当前目录是 linked worktree 时，
+  Git 分支格的 `🌿` 换成 `🌳`，通过 `git rev-parse --git-dir --git-common-dir` 检测
+  （git-dir 与 common-dir 不等即为 linked worktree）。图标后显示的仍是该 worktree 检出的
+  分支名；worktree 目录名已由 `📁` 格展示，不重复。检测并入已有的并行 git 采集 + 5s 缓存，
+  无额外子进程开销。README 新增「Git Worktree 支持」一节，说明 `EnterWorktree` /
+  `ExitWorktree` 的创建 / 进入 / 退出工作流。
+
 ## [0.2.8] - 2026-06-14
 
 ### Added

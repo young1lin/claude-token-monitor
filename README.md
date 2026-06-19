@@ -108,6 +108,68 @@ GLM 缓存按 `provider + ANTHROPIC_AUTH_TOKEN` 指纹分文件保存；同一�
 
 ![](./images/claude-code-monitor-glm.png)
 
+## Git Worktree 支持
+
+### 状态栏如何显示 worktree
+
+当前工作目录是一个 **linked worktree**（而非主检出）时，Git 分支格的叶子图标 `🌿` 会自动换成树图标 `🌳`：
+
+```
+🌿 main                      ← 主检出
+🌳 feat/git-worktree-icon    ← 你在某个 worktree 里
+```
+
+- `🌳` 后面显示的始终是该 worktree **检出的分支名**，不是目录名；worktree 的目录名已经由 `📁` 格展示，所以不重复。
+- 检测方式：`git rev-parse --git-dir --git-common-dir` —— 主检出两者相等，linked worktree 的 git-dir 指向 `.git/worktrees/<name>` 而 common-dir 仍指向主 `.git`，两者不等即判定为 worktree。检测并入已有的并行 git 采集 + 5s 缓存，无额外子进程开销。
+
+### 什么是 git worktree
+
+一个仓库可以同时检出**多个工作目录**，每个目录在不同分支上、文件互相独立，但共享同一份 `.git` 历史。常用于「不打断当前分支的情况下，并行开另一个分支干活」。
+
+> 核心约束：**同一个分支不能被两个 worktree 同时检出**，所以每个 worktree 都需要自己的分支。切 worktree = 切目录，没有「原地切换」。
+
+### Claude Code 的 worktree 工具
+
+Claude Code 内置两个工具，可以把**当前会话的工作目录**切进 / 切出 worktree：
+
+| 工具 | 作用 | 关键参数 |
+|------|------|---------|
+| `EnterWorktree` | 新建一个 worktree 并把会话切进去；或切进一个**已存在**的 worktree | `name`（新建，分支建在 `.claude/worktrees/` 下）/ `path`（进入已有 worktree，须在 `git worktree list` 里）|
+| `ExitWorktree` | 离开 worktree，会话切回原目录 | `action: keep`（保留 worktree 和分支）/ `action: remove`（删目录和分支；有未提交内容时需 `discard_changes: true`）|
+
+行为要点：
+
+- 新建 worktree 的基准分支由 `worktree.baseRef` 设置决定：`fresh`（默认，从 `origin/<默认分支>` 拉）或 `head`（从当前本地 HEAD 拉）。
+- `ExitWorktree` **只清理由本会话 `EnterWorktree` 新建的 worktree**。对于你手动 `git worktree add` 创建、再用 `EnterWorktree path` 进去的 worktree，`ExitWorktree` 不会删它——只能用 `action: keep` 切回去，输出形如：
+
+  ```
+  Exiting worktree
+  ⎿  Kept worktree (branch feat/git-worktree-icon)
+  ```
+
+### 完整工作流（手动 git + Claude Code 工具）
+
+```bash
+# ① 创建：平级目录新建 worktree + 新分支（不能复用被主检出占用的 main）
+git worktree add -b feat/my-feature ../my-feature
+
+# ② 进入：把当前 Claude Code 会话切进去（路径须在 git worktree list 里）
+#    → 调用 EnterWorktree(path: "<worktree 绝对路径>")
+#    此后状态栏显示 🌳 feat/my-feature，编辑/构建都发生在这个目录
+
+# ③ 提交：在 worktree 里正常提交到 feature 分支
+git add -u && git commit -m "feat: ..."
+
+# ④ 合并：回主检出执行（worktree 里不能 checkout main，main 被它占用）
+git -C <主检出目录> merge --ff-only feat/my-feature
+
+# ⑤ 收尾：先 ExitWorktree(keep) 切回主检出，再删 worktree 和已合并的分支
+git worktree remove ../my-feature
+git branch -d feat/my-feature
+```
+
+> 记住核心：**worktree 里干活、提交；合并进主分支要回主检出目录做。**
+
 ## 扩展开发
 
 在 `internal/statusline/content/` 中创建新的收集器：
@@ -218,7 +280,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 | `📁 claude-token-monitor` | 当前工作目录名 |
 | `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | 模型 + 上下文 token 进度条 |
 | `v2.1.143` | Claude Code 版本 |
-| `🌿 main` | Git 分支（带 `+新增 ~修改 -删除` 时显示文件改动统计） |
+| `🌿 main` | Git 分支（带 `+新增 ~修改 -删除` 时显示文件改动统计）；当 cwd 是 linked worktree 时图标变为 `🌳`，详见 [Git Worktree 支持](#git-worktree-支持) |
 | `📦 2 CLAUDE.md + 2 rules` | 当前作用域命中的 CLAUDE.md 与规则文件数 |
 | `💰 $0.53 · I:60.6K O:78` | 当前会话累计费用、输入 / 输出 token |
 | `🕐 2026-05-17 13:27` | 当前日期时间（`format.timeFormat` 控制 12/24h） |

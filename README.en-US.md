@@ -100,6 +100,68 @@ GLM cache files are separated by `provider + ANTHROPIC_AUTH_TOKEN` fingerprint, 
 
 ![](./images/claude-code-monitor-glm.png)
 
+## Git Worktree Support
+
+### How the statusline shows a worktree
+
+When the current working directory is a **linked worktree** (rather than the main checkout), the leaf icon `🌿` in the Git branch cell automatically becomes a tree icon `🌳`:
+
+```
+🌿 main                      ← main checkout
+🌳 feat/git-worktree-icon    ← you are inside a worktree
+```
+
+- The text after `🌳` is always the **branch checked out in that worktree**, not the directory name. The worktree's directory name already appears in the `📁` cell, so it is not duplicated.
+- Detection: `git rev-parse --git-dir --git-common-dir` — in the main checkout the two are equal; in a linked worktree the git-dir points at `.git/worktrees/<name>` while the common-dir still points at the main `.git`. Any inequality marks a linked worktree. The check runs inside the existing parallel git fetch under the 5s cache, so there is no extra subprocess cost.
+
+### What a git worktree is
+
+A single repository can have **multiple working directories** checked out at once, each on a different branch with independent files, all sharing the same `.git` history. It is typically used to "work on another branch in parallel without disturbing the current one."
+
+> Core constraint: **the same branch cannot be checked out in two worktrees at once**, so every worktree needs its own branch. Switching worktree == switching directory; there is no in-place switch.
+
+### Claude Code's worktree tools
+
+Claude Code ships two tools that move the **current session's working directory** in and out of a worktree:
+
+| Tool | Purpose | Key parameters |
+|------|---------|----------------|
+| `EnterWorktree` | Create a new worktree and switch the session into it; or switch into an **existing** worktree | `name` (create new; branch lives under `.claude/worktrees/`) / `path` (enter an existing worktree; must appear in `git worktree list`) |
+| `ExitWorktree` | Leave the worktree and return the session to the original directory | `action: keep` (leave worktree + branch on disk) / `action: remove` (delete the directory and branch; needs `discard_changes: true` if there are uncommitted changes) |
+
+Behavior notes:
+
+- The base branch for a new worktree is governed by the `worktree.baseRef` setting: `fresh` (default, branches from `origin/<default-branch>`) or `head` (branches from the current local HEAD).
+- `ExitWorktree` **only cleans up worktrees created by `EnterWorktree` in this session**. For a worktree you created manually with `git worktree add` and then entered via `EnterWorktree path`, `ExitWorktree` will not delete it — use `action: keep` to switch back. The output looks like:
+
+  ```
+  Exiting worktree
+  ⎿  Kept worktree (branch feat/git-worktree-icon)
+  ```
+
+### Full workflow (manual git + Claude Code tools)
+
+```bash
+# 1. Create: a sibling worktree on a new branch (you cannot reuse main, which the main checkout holds)
+git worktree add -b feat/my-feature ../my-feature
+
+# 2. Enter: switch the current Claude Code session into it (path must be in git worktree list)
+#    -> call EnterWorktree(path: "<absolute worktree path>")
+#    The statusline now shows 🌳 feat/my-feature; edits/builds happen in this directory
+
+# 3. Commit: commit normally onto the feature branch inside the worktree
+git add -u && git commit -m "feat: ..."
+
+# 4. Merge: run from the main checkout (you cannot checkout main inside the worktree, it is held there)
+git -C <main-checkout-dir> merge --ff-only feat/my-feature
+
+# 5. Clean up: ExitWorktree(keep) back to the main checkout, then remove the worktree and merged branch
+git worktree remove ../my-feature
+git branch -d feat/my-feature
+```
+
+> Remember the core rule: **work and commit inside the worktree; run the merge into the main branch from the main checkout.**
+
 ## Extending
 
 Add new content by creating a collector in `internal/statusline/content/`:
@@ -210,7 +272,7 @@ The plugin writes one or more lines of plain text (with optional ANSI color code
 | `📁 claude-token-monitor` | Current working directory name |
 | `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | Model + context-token progress bar |
 | `v2.1.143` | Claude Code version |
-| `🌿 main` | Git branch (adds `+new ~modified -deleted` when there are unstaged changes) |
+| `🌿 main` | Git branch (adds `+new ~modified -deleted` when there are unstaged changes); the icon becomes `🌳` when the cwd is a linked worktree — see [Git Worktree Support](#git-worktree-support) |
 | `📦 2 CLAUDE.md + 2 rules` | Number of CLAUDE.md / rules files in scope |
 | `💰 $0.53 · I:60.6K O:78` | Session-cumulative cost and input/output tokens |
 | `🕐 2026-05-17 13:27` | Date + time (12h / 24h controlled by `format.timeFormat`) |

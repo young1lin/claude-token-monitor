@@ -1,6 +1,6 @@
 # Version
 
-Current version: **0.2.8**
+Current version: **0.2.9**
 
 ## Files to update when bumping version
 
