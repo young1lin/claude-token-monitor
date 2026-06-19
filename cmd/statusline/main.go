@@ -297,6 +297,7 @@ func registerAllCollectors(mgr *content.Manager) {
 		content.NewGitBranchCollector(),
 		content.NewGitStatusCollector(),
 		content.NewGitRemoteCollector(),
+		content.NewGitWorktreeCollector(),
 		content.NewMemoryFilesCollector(),
 		content.NewSkillsCollector(),
 		content.NewSessionTotalCollector(),

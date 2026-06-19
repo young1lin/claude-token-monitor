@@ -25,6 +25,45 @@ func TestGitComposer_Compose(t *testing.T) {
 			want: "🌿 main +3 ~2 🔄",
 		},
 		{
+			name:     "worktree swaps leaf to tree icon",
+			composer: NewGitComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch:   "feature-x",
+				content.ContentGitStatus:   "+1",
+				content.ContentGitRemote:   "",
+				content.ContentGitWorktree: "1",
+			},
+			want: "🌳 feature-x +1",
+		},
+		{
+			name:     "main checkout keeps leaf icon when worktree empty",
+			composer: NewGitComposer(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch:   "main",
+				content.ContentGitWorktree: "",
+			},
+			want: "🌿 main",
+		},
+		{
+			name:     "branch-only composer in worktree",
+			composer: NewGitComposerBranchOnly(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch:   "hotfix",
+				content.ContentGitWorktree: "1",
+			},
+			want: "🌳 hotfix",
+		},
+		{
+			name:     "branch-and-status composer in worktree",
+			composer: NewGitComposerWithStatus(),
+			contents: map[content.ContentType]string{
+				content.ContentGitBranch:   "hotfix",
+				content.ContentGitStatus:   "~2",
+				content.ContentGitWorktree: "1",
+			},
+			want: "🌳 hotfix ~2",
+		},
+		{
 			name:     "default composer with branch and status",
 			composer: NewGitComposer(),
 			contents: map[content.ContentType]string{
@@ -265,28 +304,31 @@ func TestGitComposer_InputTypes(t *testing.T) {
 		{
 			name:       "default composer input types",
 			composer:   NewGitComposer(),
-			wantLength: 3,
+			wantLength: 4,
 			wantContains: []content.ContentType{
 				content.ContentGitBranch,
 				content.ContentGitStatus,
 				content.ContentGitRemote,
+				content.ContentGitWorktree,
 			},
 		},
 		{
 			name:       "branch only input types",
 			composer:   NewGitComposerBranchOnly(),
-			wantLength: 1,
+			wantLength: 2,
 			wantContains: []content.ContentType{
 				content.ContentGitBranch,
+				content.ContentGitWorktree,
 			},
 		},
 		{
 			name:       "branch and status input types",
 			composer:   NewGitComposerWithStatus(),
-			wantLength: 2,
+			wantLength: 3,
 			wantContains: []content.ContentType{
 				content.ContentGitBranch,
 				content.ContentGitStatus,
+				content.ContentGitWorktree,
 			},
 		},
 	}

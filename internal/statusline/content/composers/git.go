@@ -5,6 +5,16 @@ import (
 	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
 )
 
+// branchLeaf returns the icon that precedes the branch name. A linked git
+// worktree (worktree == "1") gets 🌳 so the cwd's worktree mode is obvious at a
+// glance; the main checkout keeps the familiar 🌿.
+func branchLeaf(worktree string) string {
+	if worktree == "1" {
+		return "🌳 "
+	}
+	return "🌿 "
+}
+
 // GitComposer combines git branch, status, and remote into a single display
 // Default format: 🌿 branch status remote
 type GitComposer struct {
@@ -18,14 +28,16 @@ func NewGitComposer() *GitComposer {
 			content.ContentGitBranch,
 			content.ContentGitStatus,
 			content.ContentGitRemote,
+			content.ContentGitWorktree,
 		}, func(contents map[content.ContentType]string) string {
 			branch := contents[content.ContentGitBranch]
 			status := contents[content.ContentGitStatus]
 			remote := contents[content.ContentGitRemote]
+			worktree := contents[content.ContentGitWorktree]
 
 			line := ""
 			if branch != "" {
-				line = "🌿 " + content.TruncateBranch(branch)
+				line = branchLeaf(worktree) + content.TruncateBranch(branch)
 			}
 			if status != "" {
 				if line != "" {
@@ -51,10 +63,12 @@ func NewGitComposerBranchOnly() *GitComposer {
 	return &GitComposer{
 		composer: content.NewFormatComposer("git-branch-only", []content.ContentType{
 			content.ContentGitBranch,
+			content.ContentGitWorktree,
 		}, func(contents map[content.ContentType]string) string {
 			branch := contents[content.ContentGitBranch]
+			worktree := contents[content.ContentGitWorktree]
 			if branch != "" {
-				return "🌿 " + content.TruncateBranch(branch)
+				return branchLeaf(worktree) + content.TruncateBranch(branch)
 			}
 			return ""
 		}),
@@ -67,13 +81,15 @@ func NewGitComposerWithStatus() *GitComposer {
 		composer: content.NewFormatComposer("git-branch-status", []content.ContentType{
 			content.ContentGitBranch,
 			content.ContentGitStatus,
+			content.ContentGitWorktree,
 		}, func(contents map[content.ContentType]string) string {
 			branch := contents[content.ContentGitBranch]
 			status := contents[content.ContentGitStatus]
+			worktree := contents[content.ContentGitWorktree]
 
 			line := ""
 			if branch != "" {
-				line = "🌿 " + content.TruncateBranch(branch)
+				line = branchLeaf(worktree) + content.TruncateBranch(branch)
 			}
 			if status != "" {
 				if line != "" {

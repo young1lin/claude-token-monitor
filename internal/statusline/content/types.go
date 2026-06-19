@@ -18,6 +18,7 @@ const (
 	ContentGitBranch        ContentType = "git-branch"
 	ContentGitStatus        ContentType = "git-status"
 	ContentGitRemote        ContentType = "git-remote"
+	ContentGitWorktree      ContentType = "git-worktree"
 	ContentMemoryFiles      ContentType = "memory-files"
 	ContentAgent            ContentType = "agent"
 	ContentTodo             ContentType = "todo"

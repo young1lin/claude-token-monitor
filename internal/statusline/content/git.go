@@ -15,6 +15,7 @@ var (
 		branch     string
 		status     string
 		remote     string
+		worktree   string
 		lastUpdate time.Time
 		mu         sync.RWMutex
 	}
@@ -81,10 +82,27 @@ func (c *GitRemoteCollector) Collect(statusInput *StatusLineInput, _ *Transcript
 	return getGitRemoteStatusCached(statusInput.Cwd), nil
 }
 
+// GitWorktreeCollector reports whether the cwd is inside a linked git worktree.
+type GitWorktreeCollector struct {
+	*BaseCollector
+}
+
+// NewGitWorktreeCollector creates a new git worktree collector
+func NewGitWorktreeCollector() *GitWorktreeCollector {
+	return &GitWorktreeCollector{
+		BaseCollector: NewBaseCollector(ContentGitWorktree, 30*time.Second, true),
+	}
+}
+
+// Collect returns "1" when the cwd is a linked worktree, otherwise "".
+func (c *GitWorktreeCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+	return getGitWorktreeCached(statusInput.Cwd), nil
+}
+
 // getGitDataParallel fetches all git data (branch, status, remote) in parallel.
 // This is the main optimization - instead of calling each git command sequentially,
 // we run them concurrently and wait for all to complete.
-func getGitDataParallel(cwd string) (branch, status, remote string) {
+func getGitDataParallel(cwd string) (branch, status, remote, worktree string) {
 	now := time.Now()
 
 	// Check combined cache first
@@ -93,13 +111,14 @@ func getGitDataParallel(cwd string) (branch, status, remote string) {
 		branch = gitCombinedCache.branch
 		status = gitCombinedCache.status
 		remote = gitCombinedCache.remote
+		worktree = gitCombinedCache.worktree
 		gitCombinedCache.mu.RUnlock()
 		return
 	}
 	gitCombinedCache.mu.RUnlock()
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 
 	// Note: Direct assignment to named return values is safe here because:
 	// 1. Named returns are allocated before goroutines spawn
@@ -126,6 +145,14 @@ func getGitDataParallel(cwd string) (branch, status, remote string) {
 		remote = formatGitRemote(ahead, behind)
 	}()
 
+	// Detect linked worktree in parallel
+	go func() {
+		defer wg.Done()
+		if isLinkedWorktree(cwd) {
+			worktree = "1"
+		}
+	}()
+
 	wg.Wait()
 
 	// Update combined cache
@@ -133,6 +160,7 @@ func getGitDataParallel(cwd string) (branch, status, remote string) {
 	gitCombinedCache.branch = branch
 	gitCombinedCache.status = status
 	gitCombinedCache.remote = remote
+	gitCombinedCache.worktree = worktree
 	gitCombinedCache.lastUpdate = now
 	gitCombinedCache.mu.Unlock()
 
@@ -141,20 +169,27 @@ func getGitDataParallel(cwd string) (branch, status, remote string) {
 
 // getGitBranchCached returns cached git branch
 func getGitBranchCached(cwd string) string {
-	branch, _, _ := getGitDataParallel(cwd)
+	branch, _, _, _ := getGitDataParallel(cwd)
 	return branch
 }
 
 // getGitStatusCached returns cached git status
 func getGitStatusCached(cwd string) string {
-	_, status, _ := getGitDataParallel(cwd)
+	_, status, _, _ := getGitDataParallel(cwd)
 	return status
 }
 
 // getGitRemoteStatusCached returns cached git remote status
 func getGitRemoteStatusCached(cwd string) string {
-	_, _, remote := getGitDataParallel(cwd)
+	_, _, remote, _ := getGitDataParallel(cwd)
 	return remote
+}
+
+// getGitWorktreeCached returns "1" when cwd is inside a linked git worktree,
+// or "" for the main checkout / non-repo.
+func getGitWorktreeCached(cwd string) string {
+	_, _, _, worktree := getGitDataParallel(cwd)
+	return worktree
 }
 
 // formatGitStatus formats git status as a string
@@ -311,4 +346,28 @@ func getGitRemoteStatusRaw(cwd string) (ahead, behind int) {
 	}
 
 	return ahead, behind
+}
+
+// isLinkedWorktree reports whether cwd is inside a linked git worktree (as
+// opposed to the main checkout). A single `git rev-parse --git-dir
+// --git-common-dir` returns two lines: in the main worktree they are equal,
+// whereas a linked worktree points its git-dir at .git/worktrees/<name> while
+// the common-dir still points at the main repository. Any unequal pair marks a
+// linked worktree.
+func isLinkedWorktree(cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+
+	output, err := defaultCommandRunner.Run(cwd, "git", "rev-parse", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) < 2 {
+		return false
+	}
+
+	return strings.TrimSpace(lines[0]) != strings.TrimSpace(lines[1])
 }

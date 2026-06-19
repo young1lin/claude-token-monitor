@@ -32,6 +32,7 @@ func resetGitCache() {
 	gitCombinedCache.branch = ""
 	gitCombinedCache.status = ""
 	gitCombinedCache.remote = ""
+	gitCombinedCache.worktree = ""
 	gitCombinedCache.lastUpdate = time.Time{}
 	gitCombinedCache.mu.Unlock()
 }
@@ -645,6 +646,135 @@ func TestGitRemoteCollector(t *testing.T) {
 	}
 }
 
+// --- isLinkedWorktree tests ---
+
+func TestIsLinkedWorktree_LinkedWorktree(t *testing.T) {
+	// Arrange: git-dir points at .git/worktrees/<name>, common-dir at main .git
+	defer restoreDefaultRunner()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git rev-parse --git-dir --git-common-dir": []byte(".git/worktrees/feature\n.git\n"),
+		},
+	}
+
+	// Act
+	got := isLinkedWorktree("/project")
+
+	// Assert
+	if !got {
+		t.Error("expected linked worktree to be detected")
+	}
+}
+
+func TestIsLinkedWorktree_MainCheckout(t *testing.T) {
+	// Arrange: both dirs equal → main checkout
+	defer restoreDefaultRunner()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git rev-parse --git-dir --git-common-dir": []byte(".git\n.git\n"),
+		},
+	}
+
+	// Act
+	got := isLinkedWorktree("/project")
+
+	// Assert
+	if got {
+		t.Error("expected main checkout NOT to be flagged as worktree")
+	}
+}
+
+func TestIsLinkedWorktree_EmptyCwd(t *testing.T) {
+	defer restoreDefaultRunner()
+	defaultCommandRunner = &StubCommandRunner{}
+
+	if isLinkedWorktree("") {
+		t.Error("expected empty cwd to return false")
+	}
+}
+
+func TestIsLinkedWorktree_NotARepo(t *testing.T) {
+	// Arrange: command fails (not inside a git repo)
+	defer restoreDefaultRunner()
+	defaultCommandRunner = &StubCommandRunner{
+		Errors: map[string]error{
+			"git rev-parse --git-dir --git-common-dir": errors.New("not a git repository"),
+		},
+	}
+
+	if isLinkedWorktree("/project") {
+		t.Error("expected non-repo to return false")
+	}
+}
+
+func TestIsLinkedWorktree_SingleLineOutput(t *testing.T) {
+	// Arrange: malformed/short output (only one line) → not a worktree
+	defer restoreDefaultRunner()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git rev-parse --git-dir --git-common-dir": []byte(".git\n"),
+		},
+	}
+
+	if isLinkedWorktree("/project") {
+		t.Error("expected single-line output to return false")
+	}
+}
+
+func TestGitWorktreeCollector(t *testing.T) {
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git symbolic-ref --short HEAD":                        []byte("feature\n"),
+			"git status --porcelain --untracked-files=all":         []byte(""),
+			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte(""),
+			"git rev-parse --git-dir --git-common-dir":             []byte(".git/worktrees/feature\n.git\n"),
+		},
+	}
+
+	collector := NewGitWorktreeCollector()
+
+	if collector.Type() != ContentGitWorktree {
+		t.Errorf("expected type %q, got %q", ContentGitWorktree, collector.Type())
+	}
+	if !collector.Optional() {
+		t.Error("expected worktree collector to be optional")
+	}
+
+	input := &StatusLineInput{Cwd: "/project"}
+	result, err := collector.Collect(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "1" {
+		t.Errorf("expected %q for linked worktree, got %q", "1", result)
+	}
+}
+
+func TestGitWorktreeCollector_MainCheckout(t *testing.T) {
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git symbolic-ref --short HEAD":                        []byte("main\n"),
+			"git status --porcelain --untracked-files=all":         []byte(""),
+			"git rev-parse --abbrev-ref --symbolic-full-name @{u}": []byte(""),
+			"git rev-parse --git-dir --git-common-dir":             []byte(".git\n.git\n"),
+		},
+	}
+
+	collector := NewGitWorktreeCollector()
+	input := &StatusLineInput{Cwd: "/project"}
+	result, err := collector.Collect(input, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty for main checkout, got %q", result)
+	}
+}
+
 // --- getGitDataParallel cache tests ---
 
 func TestGetGitDataParallel_CacheHit(t *testing.T) {
@@ -661,7 +791,7 @@ func TestGetGitDataParallel_CacheHit(t *testing.T) {
 		},
 	}
 
-	branch1, status1, remote1 := getGitDataParallel("/project")
+	branch1, status1, remote1, _ := getGitDataParallel("/project")
 	if branch1 != "main" {
 		t.Errorf("expected branch %q, got %q", "main", branch1)
 	}
@@ -674,7 +804,7 @@ func TestGetGitDataParallel_CacheHit(t *testing.T) {
 	}
 
 	// Should still return cached "main"
-	branch2, status2, remote2 := getGitDataParallel("/project")
+	branch2, status2, remote2, _ := getGitDataParallel("/project")
 	if branch2 != branch1 {
 		t.Errorf("cache miss: expected branch %q, got %q", branch1, branch2)
 	}
@@ -705,7 +835,7 @@ func TestGetGitDataParallel_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			b, s, r := getGitDataParallel("/project")
+			b, s, r, _ := getGitDataParallel("/project")
 			results[idx] = struct{ branch, status, remote string }{b, s, r}
 		}(i)
 	}
@@ -724,9 +854,9 @@ func TestGetGitDataParallel_EmptyCwd(t *testing.T) {
 	resetGitCache()
 	defaultCommandRunner = &StubCommandRunner{}
 
-	branch, status, remote := getGitDataParallel("")
-	if branch != "" || status != "" || remote != "" {
-		t.Errorf("expected all empty, got branch=%q status=%q remote=%q", branch, status, remote)
+	branch, status, remote, worktree := getGitDataParallel("")
+	if branch != "" || status != "" || remote != "" || worktree != "" {
+		t.Errorf("expected all empty, got branch=%q status=%q remote=%q worktree=%q", branch, status, remote, worktree)
 	}
 }
 
