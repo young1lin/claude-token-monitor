@@ -2,6 +2,8 @@ package content
 
 import (
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -350,10 +352,15 @@ func getGitRemoteStatusRaw(cwd string) (ahead, behind int) {
 
 // isLinkedWorktree reports whether cwd is inside a linked git worktree (as
 // opposed to the main checkout). A single `git rev-parse --git-dir
-// --git-common-dir` returns two lines: in the main worktree they are equal,
-// whereas a linked worktree points its git-dir at .git/worktrees/<name> while
-// the common-dir still points at the main repository. Any unequal pair marks a
-// linked worktree.
+// --git-common-dir` returns two lines: a linked worktree points its git-dir at
+// .git/worktrees/<name> while the common-dir still points at the main
+// repository, so the two resolve to different directories.
+//
+// The two lines CANNOT be compared as raw strings: git reports --git-dir as an
+// absolute path but --git-common-dir relative to cwd whenever cwd is a
+// subdirectory of the main checkout (e.g. git-dir "/repo/.git" vs common-dir
+// "../.git"). Those denote the SAME directory, so we must resolve both to a
+// canonical absolute path (relative ones against cwd) before comparing.
 func isLinkedWorktree(cwd string) bool {
 	if cwd == "" {
 		return false
@@ -369,5 +376,29 @@ func isLinkedWorktree(cwd string) bool {
 		return false
 	}
 
-	return strings.TrimSpace(lines[0]) != strings.TrimSpace(lines[1])
+	gitDir := resolveGitPath(cwd, strings.TrimSpace(lines[0]))
+	commonDir := resolveGitPath(cwd, strings.TrimSpace(lines[1]))
+	return !pathsEqual(gitDir, commonDir)
+}
+
+// resolveGitPath turns a path emitted by `git rev-parse` into a cleaned,
+// absolute path. Git uses forward slashes on every platform and may return a
+// path relative to cwd, so we normalise the separators and anchor relative
+// paths at cwd before cleaning.
+func resolveGitPath(cwd, p string) string {
+	p = filepath.FromSlash(p)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(cwd, p)
+	}
+	return filepath.Clean(p)
+}
+
+// pathsEqual compares two cleaned paths, honouring the case-insensitivity of
+// Windows filesystems so a drive-letter or casing difference is not mistaken
+// for a separate directory.
+func pathsEqual(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }

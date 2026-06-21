@@ -2,6 +2,7 @@ package content
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -718,6 +719,53 @@ func TestIsLinkedWorktree_SingleLineOutput(t *testing.T) {
 
 	if isLinkedWorktree("/project") {
 		t.Error("expected single-line output to return false")
+	}
+}
+
+func TestIsLinkedWorktree_SubdirOfMainCheckout(t *testing.T) {
+	// Arrange: cwd is a subdirectory of the main checkout. Git reports an
+	// ABSOLUTE git-dir but a cwd-RELATIVE common-dir; both denote the same
+	// .git directory, so this must NOT be flagged as a linked worktree.
+	// Regression for the 🌳 false positive on plain subdirectories.
+	defer restoreDefaultRunner()
+	repoRoot := filepath.Join(t.TempDir(), "mattermost-ext")
+	cwd := filepath.Join(repoRoot, "mmproxy")
+	absGitDir := filepath.ToSlash(filepath.Join(repoRoot, ".git")) // git emits "/"
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git rev-parse --git-dir --git-common-dir": []byte(absGitDir + "\n../.git\n"),
+		},
+	}
+
+	// Act
+	got := isLinkedWorktree(cwd)
+
+	// Assert
+	if got {
+		t.Error("subdirectory of main checkout must NOT be flagged as a linked worktree")
+	}
+}
+
+func TestIsLinkedWorktree_LinkedWorktreeAbsolutePaths(t *testing.T) {
+	// Arrange: a real linked worktree, where git reports BOTH dirs as absolute
+	// and they resolve to different directories.
+	defer restoreDefaultRunner()
+	repoRoot := filepath.Join(t.TempDir(), "main")
+	cwd := filepath.Join(t.TempDir(), "linked-wt")
+	commonDir := filepath.ToSlash(filepath.Join(repoRoot, ".git"))
+	gitDir := commonDir + "/worktrees/linked-wt"
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git rev-parse --git-dir --git-common-dir": []byte(gitDir + "\n" + commonDir + "\n"),
+		},
+	}
+
+	// Act
+	got := isLinkedWorktree(cwd)
+
+	// Assert
+	if !got {
+		t.Error("expected a linked worktree with absolute paths to be detected")
 	}
 }
 
