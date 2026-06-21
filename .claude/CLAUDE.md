@@ -2,7 +2,17 @@
 
 ## Version
 
-Current version is tracked in [.claude/context/VERSION.md](.claude/context/VERSION.md). When bumping version, update all files listed there.
+The release harness is documented in [.claude/harness/VERSION.md](.claude/harness/VERSION.md).
+
+- **When to read it:** whenever you are cutting a new release — i.e. a change is
+  ready to ship and the version is about to be bumped.
+- **What stage:** after the code change is committed, *before* you tag. Read the
+  file first, then follow its checklist and release procedure in order.
+- **What it contains:** the authoritative version-bump checklist (every file to
+  edit), the step-by-step release procedure (bump → commit → tag → push → CI),
+  and — most importantly — the explanation that the shipped binary's version is
+  injected from the **git tag** via GoReleaser ldflags, not from any tracked
+  file. The tag is the source of truth; the files only keep the listing in sync.
 
 ## Usage
 

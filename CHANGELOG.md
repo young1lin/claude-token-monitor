@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-06-21
+
+### Fixed
+- **`🌳` worktree icon no longer shows for ordinary subdirectories.**
+  `isLinkedWorktree` compared the two lines of `git rev-parse --git-dir
+  --git-common-dir` as raw strings. But from any subdirectory of the main
+  checkout, git reports an absolute `--git-dir` and a cwd-relative
+  `--git-common-dir` (e.g. `/repo/.git` vs `../.git`) that denote the *same*
+  directory — so every nested subdirectory was misflagged as a linked worktree
+  and rendered `🌳` instead of `🌿`. Both paths are now resolved to a canonical
+  absolute form (relative ones anchored at cwd, Windows case-insensitive)
+  before comparison. Added regression tests covering the absolute-vs-relative
+  output that real git emits from a subdirectory.
+- **普通子目录不再误显示 `🌳` worktree 图标。** `isLinkedWorktree` 此前把
+  `git rev-parse --git-dir --git-common-dir` 的两行当字符串直接比较。但在主检出的
+  任意子目录里，git 给出的是绝对的 `--git-dir` 和相对 cwd 的 `--git-common-dir`
+  （如 `/repo/.git` vs `../.git`），二者指向*同一*目录——于是每个嵌套子目录都被误判为
+  linked worktree、显示成 `🌳` 而非 `🌿`。现在比较前会把两条路径都归一化为规范绝对路径
+  （相对路径按 cwd 解析，Windows 大小写不敏感）。新增回归测试，覆盖真实 git 从子目录
+  输出的「绝对 vs 相对」形态。
+
 ## [0.2.9] - 2026-06-19
 
 ### Added
