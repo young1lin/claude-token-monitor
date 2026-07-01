@@ -45,7 +45,7 @@ The chip is hidden only when thinking, fast mode, and effort are all unreported.
 
 ## Configuration
 
-Create `.claude/statusline.yml` in your project (`.yml` is preferred but `.yaml` also works; drop it under `~/.claude/` for a global config):
+Create `.claude/statusline.yml` in your project (`.yml` is preferred but `.yaml` also works; drop it under your config dir for a global config — `~/.claude/` by default, or `$CLAUDE_CONFIG_DIR` such as `~/.claude-account-ME/` when set):
 
 ```yaml
 display:
@@ -409,22 +409,31 @@ The `/setup` command handles binary updates automatically:
 If you need to update the binary manually:
 
 ```bash
-# Check current version
-~/.claude/statusline --version
+# First resolve the config dir: $CLAUDE_CONFIG_DIR if set, else ~/.claude
+#   macOS/Linux
+CC_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+#   Windows (PowerShell)
+# $CC_DIR = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
 
-# Windows (PowerShell)
+# Check current version
+"$CC_DIR"/statusline --version
+
+# Windows (PowerShell) — extract into $CC_DIR, do not hardcode ~/.claude
 Invoke-WebRequest -Uri "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_windows_amd64.zip" -OutFile "$env:TEMP\statusline.zip"
-Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$env:USERPROFILE\.claude\" -Force
+Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$CC_DIR\" -Force
 Remove-Item "$env:TEMP\statusline.zip"
 
 # macOS
-curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_darwin_$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/').tar.gz" | tar -xz -C "$HOME/.claude/"
+curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_darwin_$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/').tar.gz" | tar -xz -C "$CC_DIR/"
 
 # Linux
-curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -C "$HOME/.claude/"
+curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -C "$CC_DIR/"
 ```
 
-### Enable Auto-Update
+> **Multi-account note**: if you set `CLAUDE_CONFIG_DIR` (e.g. `~/.claude-account-ME`),
+> the binary and `settings.json` must go in that directory, not `~/.claude/`.
+> Installing into the wrong dir leaves Claude Code loading the stale binary —
+> "I updated but nothing changed."
 
 To enable automatic plugin updates on startup:
 

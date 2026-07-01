@@ -2,16 +2,45 @@
 
 You are helping the user install or update the claude-token-monitor statusline plugin.
 
+## Resolve the config directory (do this first, use it everywhere)
+
+Claude Code's config directory is **not always `~/.claude`**. In multi-account
+setups the user sets `$CLAUDE_CONFIG_DIR` (e.g. `~/.claude-account-ME`) and the
+binary, `settings.json`, and `projects/` all live there instead. Installing into
+`~/.claude/` while the user runs Claude Code with `$CLAUDE_CONFIG_DIR` set leaves
+the *other* account's binary stale — the classic "I updated but nothing changed"
+bug. So resolve the dir once and use it for **every** path below.
+
+Resolution (matches the binary's own `claudedir.Resolve` — env var wins, then
+`~/.claude`):
+
+- If `$CLAUDE_CONFIG_DIR` is set and non-empty → use it.
+- Otherwise → `~/.claude` (`$USERPROFILE\.claude` on Windows).
+
+```bash
+# macOS / Linux
+CC_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+```
+
+```powershell
+# Windows (PowerShell)
+$CC_DIR = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+```
+
+Every `~/.claude/...` in the steps below means `$CC_DIR/...`. Substitute the
+resolved absolute path when you write `settings.json` (the `command` field must
+be absolute — Claude Code does not expand `~` or env vars there).
+
 ## Step 0: Version Check (Update Flow)
 
 **Check if already installed:**
 
 ```bash
-# Check if binary exists
-ls ~/.claude/statusline* 2>/dev/null || echo "NOT_INSTALLED"
+# Check if binary exists (use the resolved $CC_DIR, not ~/.claude)
+ls "$CC_DIR"/statusline* 2>/dev/null || echo "NOT_INSTALLED"
 
 # Get local version (if installed)
-~/.claude/statusline --version 2>/dev/null || echo "VERSION_UNKNOWN"
+"$CC_DIR"/statusline --version 2>/dev/null || echo "VERSION_UNKNOWN"
 # Output: "statusline version 0.1.12 (commit: abc1234)"
 ```
 
@@ -82,49 +111,55 @@ File mappings:
 ### Windows (PowerShell)
 
 ```powershell
+# $CC_DIR resolved earlier (honors $CLAUDE_CONFIG_DIR, else $USERPROFILE\.claude)
 # Download
 Invoke-WebRequest -Uri "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_windows_amd64.zip" -OutFile "$env:TEMP\statusline.zip"
-# Extract to ~/.claude/
-Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$env:USERPROFILE\.claude\" -Force
+# Extract into the resolved config dir
+Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$CC_DIR\" -Force
 # Cleanup
 Remove-Item "$env:TEMP\statusline.zip"
 # Verify
-& "$env:USERPROFILE\.claude\statusline.exe" --version
+& "$CC_DIR\statusline.exe" --version
 ```
 
 ### macOS/Linux
 
 ```bash
+# $CC_DIR resolved earlier (honors $CLAUDE_CONFIG_DIR, else $HOME/.claude)
 # Download URL
 URL="https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_${OS}_${ARCH}.tar.gz"
 
-# Download and extract to ~/.claude/
-curl -L "$URL" | tar -xz -C "$HOME/.claude/"
+# Download and extract into the resolved config dir
+curl -L "$URL" | tar -xz -C "$CC_DIR/"
 
 # Make executable
-chmod +x "$HOME/.claude/statusline"
+chmod +x "$CC_DIR/statusline"
 
 # Verify
-~/.claude/statusline --version
+"$CC_DIR"/statusline --version
 ```
 
 ## Step 3: Configure settings.json
 
 **IMPORTANT**: Use forward slashes `/` for paths (works on all platforms including Windows).
 
-Read the existing `~/.claude/settings.json` and merge the statusLine configuration.
+Read the existing **`$CC_DIR/settings.json`** (the resolved config dir — `~/.claude`
+by default, or `$CLAUDE_CONFIG_DIR` when set) and merge the statusLine
+configuration. Do **not** assume `~/.claude/settings.json`; if the user runs
+Claude Code with `$CLAUDE_CONFIG_DIR` set, that is where Claude Code reads its
+settings from.
 
 ### Path Format (2026 Best Practice)
 
-| Platform | Path Format |
-|----------|-------------|
-| Windows | `C:/Users/username/.claude/statusline.exe` |
-| macOS | `/Users/username/.claude/statusline` |
-| Linux | `/home/username/.claude/statusline` |
+The `command` must be the **absolute** path to the binary you just installed,
+i.e. inside the resolved `$CC_DIR`. Claude Code does not expand `~` or env vars
+in this field, so substitute the real resolved path.
 
-**Recommended**: Use `$HOME` expansion where possible:
-- Unix: `$HOME/.claude/statusline`
-- Windows: Use full path like `C:/Users/username/.claude/statusline.exe`
+| Platform | Default `$CC_DIR` | With `$CLAUDE_CONFIG_DIR=~/.claude-account-ME` |
+|----------|-------------------|------------------------------------------------|
+| Windows  | `C:/Users/username/.claude/statusline.exe` | `C:/Users/username/.claude-account-ME/statusline.exe` |
+| macOS    | `/Users/username/.claude/statusline` | `/Users/username/.claude-account-ME/statusline` |
+| Linux    | `/home/username/.claude/statusline` | `/home/username/.claude-account-ME/statusline` |
 
 ### Configuration Example
 
@@ -140,6 +175,9 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 }
 ```
 
+Replace `.claude` in the `command` with the actual last segment of `$CC_DIR`
+(`.claude-account-ME` in a multi-account setup).
+
 **Windows path example:**
 ```json
 "command": "C:/Users/YourName/.claude/statusline.exe"
@@ -148,7 +186,7 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 **macOS/Linux path example:**
 ```json
 "command": "/Users/username/.claude/statusline"
-// or
+// or, only when $CLAUDE_CONFIG_DIR is unset:
 "command": "$HOME/.claude/statusline"
 ```
 
@@ -156,6 +194,10 @@ Read the existing `~/.claude/settings.json` and merge the statusLine configurati
 1. Merge with existing settings, don't overwrite!
 2. Use forward slashes `/` (not `\\` or `\\\\`)
 3. Avoid `%USERPROFILE%` - use actual path or `$HOME`
+4. The `command` path and the file's own location must share the same `$CC_DIR`
+   — writing `settings.json` to `~/.claude/` while pointing `command` at (or
+   installing the binary under) a different dir is exactly the mismatch that
+   breaks updates.
 
 ## Step 4: Optional — Configure Proxy & Cache (interactive)
 
@@ -243,9 +285,11 @@ Both `http` / `https` and `socks5` are supported by the statusline binary
 pair is read directly from the URL's user-info field — no separate fields.
 
 Then create/update `.claude/statusline.yml` (project-scoped) or
-`~/.claude/statusline.yml` (global). **Do not commit the project-scoped file**
-— `.claude/statusline.yml` is git-ignored by default to keep proxy
-credentials per-machine.
+**`$CC_DIR/statusline.yml`** (global). The binary looks up the global file under
+the resolved config dir (`claudedir.Resolve` → `$CLAUDE_CONFIG_DIR` or `~/.claude`),
+so writing it to `~/.claude/` when `$CLAUDE_CONFIG_DIR` is set means it is never
+read. **Do not commit the project-scoped file** — `.claude/statusline.yml` is
+git-ignored by default to keep proxy credentials per-machine.
 
 Final file (proxy + cache, both optional):
 
@@ -286,11 +330,11 @@ Claude API traffic.
 Ask the user to check if the statusline appears in Claude Code.
 
 ```bash
-# Verify binary works
-~/.claude/statusline --version
+# Verify binary works (in the resolved $CC_DIR, not ~/.claude)
+"$CC_DIR"/statusline --version
 
-# Verify settings.json
-cat ~/.claude/settings.json
+# Verify settings.json lives in the SAME resolved config dir
+cat "$CC_DIR/settings.json"
 ```
 
 If it doesn't appear, check:
@@ -307,12 +351,18 @@ If it doesn't appear, check:
 - Ensure the path is absolute (starts with `C:/` on Windows or `/` on Unix)
 
 ### "Permission denied"
-- macOS/Linux: Run `chmod +x ~/.claude/statusline`
+- macOS/Linux: Run `chmod +x "$CC_DIR"/statusline`
 
 ### Statusline not updating
 - Try sending a new message in Claude Code
 - Check that Claude Code is reading the correct settings.json
 
-### Version mismatch after update
-- Restart Claude Code to reload the binary
-- Verify the binary path in settings.json matches the installed location
+### Version mismatch after update / "I updated but nothing changed"
+This is almost always a `$CLAUDE_CONFIG_DIR` mismatch: the binary was installed
+to `~/.claude/` while Claude Code runs with `$CLAUDE_CONFIG_DIR` set (or vice
+versa), so the *other* config dir still holds the old binary.
+- Re-run setup with `$CC_DIR` resolved from `$CLAUDE_CONFIG_DIR` (see top of this
+  file) and install into that exact dir.
+- Confirm `command` in `settings.json`, the `settings.json` file itself, and the
+  binary on disk all live under the same `$CC_DIR`.
+- Restart Claude Code to reload the binary.

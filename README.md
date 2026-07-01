@@ -55,7 +55,7 @@ thinking、fast、effort 都没有内容时该 chip 隐藏（旧版 CC 不发 `e
 
 ## 配置
 
-在项目中创建 `.claude/statusline.yml`（`.yml` 优先，也兼容 `.yaml`；放到 `~/.claude/` 下即为全局配置）：
+在项目中创建 `.claude/statusline.yml`（`.yml` 优先，也兼容 `.yaml`；放到配置目录下即为全局配置——默认 `~/.claude/`，设了 `CLAUDE_CONFIG_DIR` 则用该目录，例如 `~/.claude-account-ME/`）：
 
 ```yaml
 display:
@@ -416,20 +416,30 @@ claude plugin update claude-token-monitor@claude-token-monitor
 如需手动更新：
 
 ```bash
-# Check current version
-~/.claude/statusline --version
+# 先解析配置目录：设了 CLAUDE_CONFIG_DIR 就用它，否则用 ~/.claude
+#   macOS/Linux
+CC_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+#   Windows (PowerShell)
+# $CC_DIR = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
 
-# Windows (PowerShell)
+# Check current version
+"$CC_DIR"/statusline --version
+
+# Windows (PowerShell) — 解压到 $CC_DIR，不要写死 ~/.claude
 Invoke-WebRequest -Uri "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_windows_amd64.zip" -OutFile "$env:TEMP\statusline.zip"
-Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$env:USERPROFILE\.claude\" -Force
+Expand-Archive -Path "$env:TEMP\statusline.zip" -DestinationPath "$CC_DIR\" -Force
 Remove-Item "$env:TEMP\statusline.zip"
 
 # macOS
-curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_darwin_$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/').tar.gz" | tar -xz -C "$HOME/.claude/"
+curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_darwin_$(uname -m | sed 's/x86_64/amd64/;s/arm64/arm64/').tar.gz" | tar -xz -C "$CC_DIR/"
 
 # Linux
-curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -C "$HOME/.claude/"
+curl -L "https://github.com/young1lin/claude-token-monitor/releases/latest/download/statusline_linux_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar -xz -C "$CC_DIR/"
 ```
+
+> **多账户注意**：如果你设了 `CLAUDE_CONFIG_DIR`（例如 `~/.claude-account-ME`），
+> 二进制和 `settings.json` 必须装到该目录，而不是 `~/.claude/`。装错目录会导致
+> Claude Code 仍加载旧二进制，出现「升级了却没变化」。
 
 ### 启用自动更新
 
