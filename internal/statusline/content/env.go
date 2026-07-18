@@ -73,23 +73,15 @@ func BuildEnv(input *StatusLineInput, summary *TranscriptSummary) *Env {
 // the process environment.
 func detectTerminal() TerminalInfo {
 	program := os.Getenv("TERM_PROGRAM")
-	// East Asian Ambiguous width (·↻×→…). STATUSLINE_AMBIGUOUS_WIDE is a
-	// tri-state override: "1" forces wide, "0" forces narrow, unset falls
-	// back to the terminal default. Windows Terminal renders these as wide
-	// (2 cells) with Cascadia Code, so WT defaults to wide; everything else
-	// defaults to narrow. Matching the terminal's actual rendering here is
-	// what keeps the quota row (📊 … ↻ … · …) aligned with the others.
-	ambigWide := false
-	switch os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") {
-	case "1":
-		ambigWide = true
-	case "0":
-		ambigWide = false
-	default:
-		if goosFn() == "windows" && os.Getenv("WT_SESSION") != "" {
-			ambigWide = true
-		}
-	}
+	// East Asian Ambiguous width (·↑→±…). STATUSLINE_AMBIGUOUS_WIDE=1 forces
+	// wide (2 cells); anything else means narrow. Ambiguous glyphs render at
+	// one cell on every target terminal: measured on Windows Terminal via a
+	// user-run probe (2026-07-19: ↑·↻ ×10 all end at column 10), and narrow
+	// is likewise the default of macOS Terminal.app and iTerm2. A previous
+	// build defaulted WT to wide on a wrong assumption, which over-counted
+	// ↑ and · by one cell each and drifted their rows out of alignment. The
+	// override remains for terminal+font combos that do render them wide.
+	ambigWide := os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") == "1"
 	narrow := false
 	switch program {
 	case "Apple_Terminal", "vscode", "WarpTerminal":

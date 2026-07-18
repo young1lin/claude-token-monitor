@@ -196,14 +196,14 @@ func TestDetectTerminal_WindowsTerminalNarrowBlock(t *testing.T) {
 	ti := detectTerminal()
 	assert.True(t, ti.NarrowBlock,
 		"Windows Terminal renders Block Elements narrow (width 1), so NarrowBlock must be true")
-	assert.True(t, ti.AmbigWide,
-		"Windows Terminal renders East Asian Ambiguous wide (2 cells), so AmbigWide defaults to true")
+	assert.False(t, ti.AmbigWide,
+		"Windows Terminal renders East Asian Ambiguous narrow (1 cell, probe-verified 2026-07-19), so AmbigWide defaults to false")
 	assert.True(t, ti.IsWTSession)
 }
 
 // TestDetectTerminal_WTAmbigWideOverrideOff verifies STATUSLINE_AMBIGUOUS_WIDE=0
-// forces narrow Ambiguous rendering even on Windows Terminal (escape hatch if a
-// user's WT font renders ·↻ narrow).
+// keeps Ambiguous narrow on Windows Terminal — same as the unset default, kept
+// as an explicit opt-out for symmetry with the =1 opt-in.
 func TestDetectTerminal_WTAmbigWideOverrideOff(t *testing.T) {
 	old := goosFn
 	t.Cleanup(func() { goosFn = old })
@@ -211,5 +211,5 @@ func TestDetectTerminal_WTAmbigWideOverrideOff(t *testing.T) {
 	t.Setenv("WT_SESSION", "wt-test-session")
 	t.Setenv("STATUSLINE_AMBIGUOUS_WIDE", "0")
 	ti := detectTerminal()
-	assert.False(t, ti.AmbigWide, "=0 must override WT's default-wide Ambiguous")
+	assert.False(t, ti.AmbigWide, "=0 must keep Ambiguous narrow")
 }

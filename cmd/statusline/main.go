@@ -178,10 +178,15 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 
 	// Configure go-runewidth's Condition from the per-process Env so the
 	// renderer aligns ambiguous-width symbols (· × → …) with the terminal's
-	// actual rendering. Setting the package-level runewidth.EastAsianWidth is a
-	// NO-OP in current go-runewidth — RuneWidth delegates to DefaultCondition,
-	// so we set the field directly and rebuild its LUT. Must run after BuildEnv
-	// (which resolves env.Terminal.AmbigWide once from STATUSLINE_AMBIGUOUS_WIDE)
+	// actual rendering. This explicit set is required even when AmbigWide is
+	// false: on CJK Windows go-runewidth's init() presets EastAsianWidth=true
+	// from the console codepage (e.g. CP936), which would over-count every
+	// Ambiguous rune by one cell. Two library traps to avoid here: the
+	// package-level runewidth.EastAsianWidth var is a NO-OP (RuneWidth
+	// delegates to DefaultCondition), and the package-level CreateLUT()
+	// silently skips the rebuild when a LUT already exists — so set the field
+	// directly and rebuild via the method. Must run after BuildEnv (which
+	// resolves env.Terminal.AmbigWide once from STATUSLINE_AMBIGUOUS_WIDE)
 	// and before any renderer/layout call that consults RuneWidth. Emoji
 	// (📁🌿…) width is computed independently and is always 2 regardless.
 	runewidth.DefaultCondition.EastAsianWidth = env.Terminal.AmbigWide
