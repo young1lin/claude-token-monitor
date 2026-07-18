@@ -403,9 +403,12 @@ func TestGetMCPCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Arrange
 			cwd := tt.setup(t)
+			// claudeDir matches the <home>/.claude fixtures the setup writes
+			// (HOME/USERPROFILE point at the same temp home).
+			claudeDir := filepath.Join(os.Getenv("HOME"), ".claude")
 
 			// Act
-			got := getMCPCount(cwd)
+			got := getMCPCount(cwd, claudeDir)
 
 			// Assert
 			assert.Equal(t, tt.want, got)
@@ -427,7 +430,7 @@ func TestGetMemoryFilesInfo_WithGlobalRules(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 1, info.RulesCount) // global rule
 }
 
@@ -448,7 +451,7 @@ func TestGetMemoryFilesInfo_UpwardTraversal(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/parent/sub/project")
+	info := getMemoryFilesInfo("/parent/sub/project", false, "/home/test/.claude")
 	assert.Equal(t, 1, info.RulesCount)
 }
 
@@ -456,9 +459,6 @@ func TestGetMemoryFilesInfo_EnterprisePolicy(t *testing.T) {
 	// Simulates Windows with Enterprise CLAUDE.md file present.
 	defer restoreFileSystem()
 	clearMemoryCache()
-	oldOS := currentOS
-	currentOS = "windows"
-	defer func() { currentOS = oldOS }()
 
 	// StubFileSystem normalizes paths via normalizePath (backslash → forward slash).
 	// On Windows, filepath.Join produces backslashes, so use forward slashes for the key.
@@ -472,7 +472,7 @@ func TestGetMemoryFilesInfo_EnterprisePolicy(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", true, "/home/test/.claude")
 	assert.Equal(t, 1, info.CLAUDEMdCount, "enterprise CLAUDE.md should be counted")
 }
 
@@ -480,9 +480,6 @@ func TestGetMemoryFilesInfo_EnterprisePolicyNotWindows(t *testing.T) {
 	// On non-Windows, Enterprise path is skipped even if Stat succeeds.
 	defer restoreFileSystem()
 	clearMemoryCache()
-	oldOS := currentOS
-	currentOS = "linux"
-	defer func() { currentOS = oldOS }()
 
 	enterprisePath := normalizePath(filepath.Join("C:", "Program Files", "ClaudeCode", "CLAUDE.md"))
 	defaultFileSystem = &StubFileSystem{
@@ -494,7 +491,7 @@ func TestGetMemoryFilesInfo_EnterprisePolicyNotWindows(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 0, info.CLAUDEMdCount, "enterprise path skipped on non-windows")
 }
 
@@ -544,13 +541,13 @@ func TestGetMemoryFilesInfo_GlobalClaudeMdHonorsConfigDir(t *testing.T) {
 	t.Setenv("USERPROFILE", homeDir)
 	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
 
-	info := getMemoryFilesInfo(cwd)
+	info := getMemoryFilesInfo(cwd, false, customDir)
 	assert.Equal(t, 0, info.CLAUDEMdCount, "must NOT count home/.claude/CLAUDE.md when env points elsewhere")
 
 	// Now put one under the custom dir — should count.
 	require.NoError(t, os.WriteFile(filepath.Join(customDir, "CLAUDE.md"), []byte("right"), 0644))
 	clearMemoryCache()
-	info = getMemoryFilesInfo(cwd)
+	info = getMemoryFilesInfo(cwd, false, customDir)
 	assert.Equal(t, 1, info.CLAUDEMdCount, "must count $CLAUDE_CONFIG_DIR/CLAUDE.md")
 }
 
@@ -582,7 +579,7 @@ func TestGetMemoryFilesInfo_GlobalRulesHonorsConfigDir(t *testing.T) {
 	t.Setenv("USERPROFILE", homeDir)
 	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
 
-	info := getMemoryFilesInfo(cwd)
+	info := getMemoryFilesInfo(cwd, false, customDir)
 	assert.Equal(t, 2, info.RulesCount, "must count $CLAUDE_CONFIG_DIR/rules, not <home>/.claude/rules")
 }
 
@@ -617,6 +614,6 @@ func TestGetMCPCount_GlobalSettingsHonorsConfigDir(t *testing.T) {
 	t.Setenv("USERPROFILE", homeDir)
 	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
 
-	got := getMCPCount(cwd)
+	got := getMCPCount(cwd, customDir)
 	assert.Equal(t, 2, got, "must read $CLAUDE_CONFIG_DIR/settings.json, not <home>/.claude/settings.json")
 }

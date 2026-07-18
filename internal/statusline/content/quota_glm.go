@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -66,27 +65,26 @@ var glmBaseURLOverride string
 var glmHTTPTimeout = 4 * time.Second
 
 // glmBaseURL returns the scheme+host (no trailing slash) of the quota monitor
-// API. We parse $ANTHROPIC_BASE_URL directly so user configs like
+// API. We parse the base URL carried on env.Provider so user configs like
 // "https://open.bigmodel.cn/api/anthropic" (Anthropic-compat subpath) still
 // resolve to the right host — appending /api/monitor/... to the raw value
 // would otherwise double up the /api segment.
 //
-// glmBaseURLOverride wins over everything so httptest servers work in tests.
-func glmBaseURL(p providerKind) string {
+// The base URL is resolved once by detectProviderInfo and never re-read from
+// os.Getenv here. glmBaseURLOverride wins over everything so httptest servers
+// work in tests.
+func glmBaseURL(p ProviderInfo) string {
 	if glmBaseURLOverride != "" {
 		return glmBaseURLOverride
 	}
-	raw := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
-	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("ANTHROPIC_API_BASE_URL"))
-	}
+	raw := p.BaseURL
 	if u, err := url.Parse(raw); err == nil && u.Scheme != "" && u.Host != "" {
 		return u.Scheme + "://" + u.Host
 	}
-	// Hardcoded fallbacks for the unlikely case ANTHROPIC_BASE_URL is unset
-	// while detection still landed on a GLM provider (shouldn't happen, but
-	// don't crash).
-	switch p {
+	// Hardcoded fallbacks for the unlikely case the base URL is empty while
+	// detection still landed on a GLM provider (shouldn't happen, but don't
+	// crash).
+	switch p.Kind {
 	case providerGLMZai:
 		return "https://api.z.ai"
 	case providerGLMZhipu:
@@ -95,8 +93,9 @@ func glmBaseURL(p providerKind) string {
 	return ""
 }
 
-// getGLMAuthToken reads $ANTHROPIC_AUTH_TOKEN from the process env. We
-// intentionally do NOT fall back to reading settings.json from disk:
+// getGLMAuthToken returns the auth token resolved once by detectProviderInfo
+// and carried on env.Provider.AuthToken. We intentionally do NOT fall back to
+// reading settings.json from disk:
 //
 //   - Claude Code already merges settings.json's `env` block into the
 //     subprocess environment before spawning statusline, so by the time we
@@ -108,8 +107,8 @@ func glmBaseURL(p providerKind) string {
 //     (settings.local.json, settings.json, $CLAUDE_CONFIG_DIR/settings.json)
 //     is "the right one" — Claude Code's own precedence logic is what we
 //     want, and it's already been applied.
-func getGLMAuthToken() string {
-	return strings.TrimSpace(os.Getenv("ANTHROPIC_AUTH_TOKEN"))
+func getGLMAuthToken(p ProviderInfo) string {
+	return p.AuthToken
 }
 
 // glmQuotaResponse mirrors the JSON shape of
@@ -275,7 +274,10 @@ func msToTime(ms int64) time.Time {
 // getGLMUsage is the GLM counterpart to the Anthropic OAuth-usage flow. It
 // shares the cross-process cache and rate-limit machinery, but keys the
 // cache on (provider, accountFingerprint) so multiple GLM accounts on the
-// same provider (e.g. Pro + Lite) don't clobber each other.
+// same provider (e.g. Pro + Lite) don't clobber each other. claudeDir is
+// the active Claude config dir resolved once by BuildEnv (honoring
+// $CLAUDE_CONFIG_DIR); threaded through so this layer never calls
+// claudedir.Resolve itself.
 //
 // Order of operations is important:
 //  1. Read the auth token. Missing token → bail out, no cache I/O.
@@ -287,19 +289,21 @@ func msToTime(ms int64) time.Time {
 // which account we're talking about would always hit the wrong file.
 //
 // input is reserved for future per-session signals; currently unused because
-// the token and URL both come from the process environment (see
-// getGLMAuthToken for why we don't read settings.json from disk).
-func getGLMUsage(_ *StatusLineInput, provider providerKind) *UsageData {
-	token := getGLMAuthToken()
+// the token and URL both come from env.Provider (resolved once by
+// detectProviderInfo — see getGLMAuthToken for why we don't read
+// settings.json from disk).
+func getGLMUsage(_ *StatusLineInput, provider ProviderInfo, claudeDir string) *UsageData {
+	token := getGLMAuthToken(provider)
 	if token == "" {
 		// Missing token is a config issue, not an API failure — don't write
 		// a failure marker that would suppress retries on the next refresh.
 		return nil
 	}
-	providerTag := provider.String()
+	kind := provider.Kind
+	providerTag := kind.String()
 	accountKey := glmAccountFingerprint(token)
 
-	shouldRefresh, cache, isBackoff := shouldRefreshResult(providerTag, accountKey)
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(claudeDir, providerTag, accountKey)
 
 	// Cache-provider mismatch (account switch / config change): force a fresh
 	// fetch AND clear the cache reference so a fetch failure doesn't fall
@@ -331,14 +335,14 @@ func getGLMUsage(_ *StatusLineInput, provider providerKind) *UsageData {
 			isRateLimited = true
 			retryAfterSec = rateErr.retryAfterSec
 		}
-		writeRefreshFailedCache(cache, isRateLimited, retryAfterSec, providerTag, accountKey)
+		writeRefreshFailedCache(claudeDir, cache, isRateLimited, retryAfterSec, providerTag, accountKey)
 		return fallbackOrNil(cache)
 	}
-	usage := glmResponseToUsageData(resp, provider)
+	usage := glmResponseToUsageData(resp, kind)
 	if usage == nil {
 		return fallbackOrNil(cache)
 	}
 	usage.AccountKey = accountKey
-	writeRefreshedCache(usage, cache)
+	writeRefreshedCache(claudeDir, usage, cache)
 	return usage
 }

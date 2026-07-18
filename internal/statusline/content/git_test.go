@@ -516,7 +516,7 @@ func TestGetGitBranchCached(t *testing.T) {
 		},
 	}
 
-	branch := getGitBranchCached("/project")
+	branch := getGitBranchCached("/project", false, time.Now())
 	if branch != "main" {
 		t.Errorf("expected %q, got %q", "main", branch)
 	}
@@ -533,7 +533,7 @@ func TestGetGitStatusCached(t *testing.T) {
 		},
 	}
 
-	status := getGitStatusCached("/project")
+	status := getGitStatusCached("/project", false, time.Now())
 	if status != "+1" {
 		t.Errorf("expected %q, got %q", "+1", status)
 	}
@@ -551,7 +551,7 @@ func TestGetGitRemoteStatusCached(t *testing.T) {
 		},
 	}
 
-	remote := getGitRemoteStatusCached("/project")
+	remote := getGitRemoteStatusCached("/project", false, time.Now())
 	if remote != "🔄 ↑2" {
 		t.Errorf("expected %q, got %q", "🔄 ↑2", remote)
 	}
@@ -578,7 +578,7 @@ func TestGitBranchCollector(t *testing.T) {
 
 	// Valid input
 	input := &StatusLineInput{Cwd: "/project"}
-	result, err := collector.Collect(input, nil)
+	result, err := collector.Collect(&Env{Input: input})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestGitStatusCollector(t *testing.T) {
 	}
 
 	input := &StatusLineInput{Cwd: "/project"}
-	result, err := collector.Collect(input, nil)
+	result, err := collector.Collect(&Env{Input: input})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -638,7 +638,7 @@ func TestGitRemoteCollector(t *testing.T) {
 
 	// No upstream → empty but no error
 	input := &StatusLineInput{Cwd: "/project"}
-	result, err := collector.Collect(input, nil)
+	result, err := collector.Collect(&Env{Input: input})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -659,7 +659,7 @@ func TestIsLinkedWorktree_LinkedWorktree(t *testing.T) {
 	}
 
 	// Act
-	got := isLinkedWorktree("/project")
+	got := isLinkedWorktree("/project", false)
 
 	// Assert
 	if !got {
@@ -677,7 +677,7 @@ func TestIsLinkedWorktree_MainCheckout(t *testing.T) {
 	}
 
 	// Act
-	got := isLinkedWorktree("/project")
+	got := isLinkedWorktree("/project", false)
 
 	// Assert
 	if got {
@@ -689,7 +689,7 @@ func TestIsLinkedWorktree_EmptyCwd(t *testing.T) {
 	defer restoreDefaultRunner()
 	defaultCommandRunner = &StubCommandRunner{}
 
-	if isLinkedWorktree("") {
+	if isLinkedWorktree("", false) {
 		t.Error("expected empty cwd to return false")
 	}
 }
@@ -703,7 +703,7 @@ func TestIsLinkedWorktree_NotARepo(t *testing.T) {
 		},
 	}
 
-	if isLinkedWorktree("/project") {
+	if isLinkedWorktree("/project", false) {
 		t.Error("expected non-repo to return false")
 	}
 }
@@ -717,7 +717,7 @@ func TestIsLinkedWorktree_SingleLineOutput(t *testing.T) {
 		},
 	}
 
-	if isLinkedWorktree("/project") {
+	if isLinkedWorktree("/project", false) {
 		t.Error("expected single-line output to return false")
 	}
 }
@@ -738,7 +738,7 @@ func TestIsLinkedWorktree_SubdirOfMainCheckout(t *testing.T) {
 	}
 
 	// Act
-	got := isLinkedWorktree(cwd)
+	got := isLinkedWorktree(cwd, false)
 
 	// Assert
 	if got {
@@ -761,7 +761,7 @@ func TestIsLinkedWorktree_LinkedWorktreeAbsolutePaths(t *testing.T) {
 	}
 
 	// Act
-	got := isLinkedWorktree(cwd)
+	got := isLinkedWorktree(cwd, false)
 
 	// Assert
 	if !got {
@@ -791,7 +791,7 @@ func TestGitWorktreeCollector(t *testing.T) {
 	}
 
 	input := &StatusLineInput{Cwd: "/project"}
-	result, err := collector.Collect(input, nil)
+	result, err := collector.Collect(&Env{Input: input})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -814,7 +814,7 @@ func TestGitWorktreeCollector_MainCheckout(t *testing.T) {
 
 	collector := NewGitWorktreeCollector()
 	input := &StatusLineInput{Cwd: "/project"}
-	result, err := collector.Collect(input, nil)
+	result, err := collector.Collect(&Env{Input: input})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -839,7 +839,11 @@ func TestGetGitDataParallel_CacheHit(t *testing.T) {
 		},
 	}
 
-	branch1, status1, remote1, _ := getGitDataParallel("/project")
+	// Pin one `now` for both calls so the TTL check sees the cache as fresh —
+	// mirrors how a single env.Now snapshot flows through the collector chain.
+	now := time.Now()
+
+	branch1, status1, remote1, _ := getGitDataParallel("/project", false, now)
 	if branch1 != "main" {
 		t.Errorf("expected branch %q, got %q", "main", branch1)
 	}
@@ -851,8 +855,9 @@ func TestGetGitDataParallel_CacheHit(t *testing.T) {
 		},
 	}
 
-	// Should still return cached "main"
-	branch2, status2, remote2, _ := getGitDataParallel("/project")
+	// Should still return cached "main" — same `now` snapshot so the TTL check
+	// sees the cache as fresh.
+	branch2, status2, remote2, _ := getGitDataParallel("/project", false, now)
 	if branch2 != branch1 {
 		t.Errorf("cache miss: expected branch %q, got %q", branch1, branch2)
 	}
@@ -883,7 +888,7 @@ func TestGetGitDataParallel_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			b, s, r, _ := getGitDataParallel("/project")
+			b, s, r, _ := getGitDataParallel("/project", false, time.Now())
 			results[idx] = struct{ branch, status, remote string }{b, s, r}
 		}(i)
 	}
@@ -902,7 +907,7 @@ func TestGetGitDataParallel_EmptyCwd(t *testing.T) {
 	resetGitCache()
 	defaultCommandRunner = &StubCommandRunner{}
 
-	branch, status, remote, worktree := getGitDataParallel("")
+	branch, status, remote, worktree := getGitDataParallel("", false, time.Now())
 	if branch != "" || status != "" || remote != "" || worktree != "" {
 		t.Errorf("expected all empty, got branch=%q status=%q remote=%q worktree=%q", branch, status, remote, worktree)
 	}
@@ -995,6 +1000,6 @@ func BenchmarkGetGitDataParallelCacheHit(b *testing.B) {
 	restoreDefaultRunner()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		getGitDataParallel("/project")
+		getGitDataParallel("/project", false, time.Now())
 	}
 }

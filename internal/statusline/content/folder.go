@@ -122,7 +122,8 @@ func NewFolderCollector() *FolderCollector {
 // grayscale 📁 folder. Like every other collector, it emits display-ready
 // content rather than leaving the prefix for the entrypoint to bolt on. An
 // empty cwd yields empty output so the optional cell drops out of the grid.
-func (c *FolderCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+func (c *FolderCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
 	name := getProjectName(statusInput.Cwd)
 	if name == "" {
 		return "", nil

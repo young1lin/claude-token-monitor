@@ -40,7 +40,7 @@ func TestNoAlignRowSkipsColumnWidthCalculation(t *testing.T) {
 	}
 
 	grid := buildTestGrid(rows)
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 
 	// Act
 	lines := renderer.Render()
@@ -72,7 +72,7 @@ func TestNoAlignRowRenderedWithoutPadding(t *testing.T) {
 	}
 
 	grid := buildTestGrid(rows)
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 
 	// Act
 	lines := renderer.Render()
@@ -97,7 +97,7 @@ func TestMixedAlignedAndNoAlignRows(t *testing.T) {
 	}
 
 	grid := buildTestGrid(rows)
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 
 	// Act
 	lines := renderer.Render()
@@ -122,7 +122,7 @@ func TestAllAlignedRowsUseColumnWidths(t *testing.T) {
 	rows[1] = GridRow{Cells: []string{"X", "Y", "", ""}}
 
 	grid := buildTestGrid(rows)
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 
 	// Act
 	lines := renderer.Render()

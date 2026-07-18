@@ -48,7 +48,8 @@ func NewModeFlagsCollector() *ModeFlagsCollector {
 // Collect builds the indicator string from the stdin payload. Returns an
 // empty string when no flag is worth showing so the cell drops out of the
 // rendered grid.
-func (c *ModeFlagsCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
+func (c *ModeFlagsCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
 	if statusInput == nil {
 		return "", nil
 	}

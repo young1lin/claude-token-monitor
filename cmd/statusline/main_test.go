@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/young1lin/claude-token-monitor/internal/parser"
 	"github.com/young1lin/claude-token-monitor/internal/statusline/content"
-	"github.com/young1lin/claude-token-monitor/internal/statusline/layout"
 )
 
 // TestParseJSONWithActiveUsage tests JSON with non-zero current_usage.
@@ -310,70 +309,6 @@ func TestStatusLineInputProjectName(t *testing.T) {
 	}
 }
 
-// TestDetectWideCharTerminal verifies the East Asian ambiguous-width flag.
-// It no longer keys off OS/terminal: go-runewidth computes emoji width
-// independently, so this flag only governs ambiguous symbols (· × → …) and
-// defaults to false (narrow) for every terminal unless opted in via env.
-func TestDetectWideCharTerminal(t *testing.T) {
-	tests := []struct {
-		name           string
-		ambiguousWide  string
-		expectedResult bool
-	}{
-		{"defaults to false", "", false},
-		{"env opt-in", "1", true},
-		{"env zero ignored", "0", false},
-		{"env garbage ignored", "yes", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("STATUSLINE_AMBIGUOUS_WIDE", tt.ambiguousWide)
-			result := detectWideCharTerminal()
-			assert.Equal(t, tt.expectedResult, result,
-				"STATUSLINE_AMBIGUOUS_WIDE=%q", tt.ambiguousWide)
-		})
-	}
-}
-
-// TestDetectNarrowBlockTerminal verifies which terminals get width-1 Block Elements.
-func TestDetectNarrowBlockTerminal(t *testing.T) {
-	tests := []struct {
-		name        string
-		os          string
-		wtSession   string
-		termProgram string
-		want        bool
-	}{
-		{"Apple Terminal on mac", "darwin", "", "Apple_Terminal", true},
-		{"iTerm2 on mac stays width-2", "darwin", "", "iTerm.app", false},
-		{"Ghostty stays width-2", "darwin", "", "ghostty", false},
-		{"VSCode on mac", "darwin", "", "vscode", true},
-		{"VSCode on linux", "linux", "", "vscode", true},
-		{"WARP on mac", "darwin", "", "WarpTerminal", true},
-		{"windows cmd (no WT_SESSION)", "windows", "", "", true},
-		{"Windows Terminal (WT_SESSION set)", "windows", "abc", "", false},
-		{"linux plain (no TERM_PROGRAM)", "linux", "", "", false},
-		{"linux unknown TERM_PROGRAM", "linux", "", "alacritty", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			old := currentOS
-			currentOS = tt.os
-			defer func() { currentOS = old }()
-
-			t.Setenv("WT_SESSION", tt.wtSession)
-			t.Setenv("TERM_PROGRAM", tt.termProgram)
-
-			got := detectNarrowBlockTerminal()
-			assert.Equal(t, tt.want, got,
-				"os=%q, WT_SESSION=%q, TERM_PROGRAM=%q",
-				tt.os, tt.wtSession, tt.termProgram)
-		})
-	}
-}
-
 // TestRegisterAllCollectors verifies that registering all collectors doesn't panic
 func TestRegisterAllCollectors(t *testing.T) {
 	mgr := content.NewManager()
@@ -543,25 +478,10 @@ func TestRun_SingleLineEnv(t *testing.T) {
 	assert.NotEmpty(t, stdout.String())
 }
 
-// TestRun_WindowsNarrowBlockWidth verifies that on Windows without WT_SESSION,
-// layout.UseNarrowBlockWidth is set to true.
-func TestRun_WindowsNarrowBlockWidth(t *testing.T) {
-	old := currentOS
-	currentOS = "windows"
-	defer func() { currentOS = old }()
-
-	t.Setenv("WT_SESSION", "")
-	// init() already ran with real OS, so we verify the logic directly.
-	// The init() sets layout.UseNarrowBlockWidth when currentOS=="windows" && WT_SESSION==""
-	// Since we can't re-run init(), we verify the condition matches.
-	wideChar := detectWideCharTerminal()
-	assert.False(t, wideChar, "WT_SESSION empty on windows should not detect wide char")
-	// The actual UseNarrowBlockWidth setting happens in init() which ran at load time.
-	// We verify the guard condition here to get the branch covered in tests.
-	layout.UseNarrowBlockWidth = false
-	if currentOS == "windows" && !wideChar {
-		layout.UseNarrowBlockWidth = true
-	}
-	assert.True(t, layout.UseNarrowBlockWidth, "should be narrow on windows without WT_SESSION")
-	layout.UseNarrowBlockWidth = false // restore
-}
+// TestRun_WindowsNarrowBlockWidth and TestDetectNarrowBlockTerminal used to
+// live here, but detectNarrowBlockTerminal + layout.UseNarrowBlockWidth were
+// removed in the EnvContext refactor: the block-width decision now happens
+// once in content.detectTerminal and is threaded through env.Terminal.NarrowBlock
+// into render.NewTableRenderer. Coverage of both the TERM_PROGRAM branches and
+// the Windows-conhost branch lives in internal/statusline/content/env_test.go
+// (TestDetectTerminal_AppleTerminalNarrowBlock, TestDetectTerminal_WindowsCmdNarrow).

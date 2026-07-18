@@ -1,7 +1,6 @@
 package content
 
 import (
-	"os"
 	"strings"
 )
 
@@ -40,13 +39,15 @@ func (p providerKind) isGLM() bool {
 	return p == providerGLMZai || p == providerGLMZhipu
 }
 
-// detectProvider classifies $ANTHROPIC_BASE_URL (with fallback to
-// $ANTHROPIC_API_BASE_URL — both forms occur in user configs).
-func detectProvider() providerKind {
-	baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(os.Getenv("ANTHROPIC_API_BASE_URL"))
-	}
+// classifyProviderBaseURL maps a resolved (already-trimmed) base URL to its
+// provider kind. This is the single source of truth for GLM detection: it is
+// called once from detectProviderInfo and stashed on env.Provider.Kind, so
+// the quota chain never re-reads $ANTHROPIC_BASE_URL / $ANTHROPIC_API_BASE_URL
+// to re-derive the kind. Both base-URL spellings occur in user configs; the
+// fallback is resolved by the caller (detectProviderInfo) before this runs.
+//
+// Pure (no env / no I/O) so it is unit-testable without t.Setenv.
+func classifyProviderBaseURL(baseURL string) providerKind {
 	if baseURL == "" || strings.HasPrefix(baseURL, "https://api.anthropic.com") {
 		return providerAnthropic
 	}

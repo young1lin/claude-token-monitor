@@ -3,7 +3,6 @@ package content
 import (
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,8 +45,9 @@ func NewGitBranchCollector() *GitBranchCollector {
 }
 
 // Collect returns the current git branch
-func (c *GitBranchCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	return getGitBranchCached(statusInput.Cwd), nil
+func (c *GitBranchCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	return getGitBranchCached(statusInput.Cwd, env.OS.IsWindows, env.Now), nil
 }
 
 // GitStatusCollector collects git file status
@@ -63,8 +63,9 @@ func NewGitStatusCollector() *GitStatusCollector {
 }
 
 // Collect returns the git file status
-func (c *GitStatusCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	return getGitStatusCached(statusInput.Cwd), nil
+func (c *GitStatusCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	return getGitStatusCached(statusInput.Cwd, env.OS.IsWindows, env.Now), nil
 }
 
 // GitRemoteCollector collects git remote sync status
@@ -80,8 +81,9 @@ func NewGitRemoteCollector() *GitRemoteCollector {
 }
 
 // Collect returns the git remote status
-func (c *GitRemoteCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	return getGitRemoteStatusCached(statusInput.Cwd), nil
+func (c *GitRemoteCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	return getGitRemoteStatusCached(statusInput.Cwd, env.OS.IsWindows, env.Now), nil
 }
 
 // GitWorktreeCollector reports whether the cwd is inside a linked git worktree.
@@ -97,16 +99,17 @@ func NewGitWorktreeCollector() *GitWorktreeCollector {
 }
 
 // Collect returns "1" when the cwd is a linked worktree, otherwise "".
-func (c *GitWorktreeCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	return getGitWorktreeCached(statusInput.Cwd), nil
+func (c *GitWorktreeCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	return getGitWorktreeCached(statusInput.Cwd, env.OS.IsWindows, env.Now), nil
 }
 
 // getGitDataParallel fetches all git data (branch, status, remote) in parallel.
 // This is the main optimization - instead of calling each git command sequentially,
-// we run them concurrently and wait for all to complete.
-func getGitDataParallel(cwd string) (branch, status, remote, worktree string) {
-	now := time.Now()
-
+// we run them concurrently and wait for all to complete. The caller threads
+// env.Now so the cache TTL check uses the same snapshot the rest of the
+// statusline render sees (pinnable in tests via the nowFn seam BuildEnv reads).
+func getGitDataParallel(cwd string, isWindows bool, now time.Time) (branch, status, remote, worktree string) {
 	// Check combined cache first
 	gitCombinedCache.mu.RLock()
 	if gitCombinedCache.branch != "" && now.Sub(gitCombinedCache.lastUpdate) < gitCombinedCacheTTL {
@@ -150,7 +153,7 @@ func getGitDataParallel(cwd string) (branch, status, remote, worktree string) {
 	// Detect linked worktree in parallel
 	go func() {
 		defer wg.Done()
-		if isLinkedWorktree(cwd) {
+		if isLinkedWorktree(cwd, isWindows) {
 			worktree = "1"
 		}
 	}()
@@ -170,27 +173,27 @@ func getGitDataParallel(cwd string) (branch, status, remote, worktree string) {
 }
 
 // getGitBranchCached returns cached git branch
-func getGitBranchCached(cwd string) string {
-	branch, _, _, _ := getGitDataParallel(cwd)
+func getGitBranchCached(cwd string, isWindows bool, now time.Time) string {
+	branch, _, _, _ := getGitDataParallel(cwd, isWindows, now)
 	return branch
 }
 
 // getGitStatusCached returns cached git status
-func getGitStatusCached(cwd string) string {
-	_, status, _, _ := getGitDataParallel(cwd)
+func getGitStatusCached(cwd string, isWindows bool, now time.Time) string {
+	_, status, _, _ := getGitDataParallel(cwd, isWindows, now)
 	return status
 }
 
 // getGitRemoteStatusCached returns cached git remote status
-func getGitRemoteStatusCached(cwd string) string {
-	_, _, remote, _ := getGitDataParallel(cwd)
+func getGitRemoteStatusCached(cwd string, isWindows bool, now time.Time) string {
+	_, _, remote, _ := getGitDataParallel(cwd, isWindows, now)
 	return remote
 }
 
 // getGitWorktreeCached returns "1" when cwd is inside a linked git worktree,
 // or "" for the main checkout / non-repo.
-func getGitWorktreeCached(cwd string) string {
-	_, _, _, worktree := getGitDataParallel(cwd)
+func getGitWorktreeCached(cwd string, isWindows bool, now time.Time) string {
+	_, _, _, worktree := getGitDataParallel(cwd, isWindows, now)
 	return worktree
 }
 
@@ -361,7 +364,7 @@ func getGitRemoteStatusRaw(cwd string) (ahead, behind int) {
 // subdirectory of the main checkout (e.g. git-dir "/repo/.git" vs common-dir
 // "../.git"). Those denote the SAME directory, so we must resolve both to a
 // canonical absolute path (relative ones against cwd) before comparing.
-func isLinkedWorktree(cwd string) bool {
+func isLinkedWorktree(cwd string, isWindows bool) bool {
 	if cwd == "" {
 		return false
 	}
@@ -378,7 +381,7 @@ func isLinkedWorktree(cwd string) bool {
 
 	gitDir := resolveGitPath(cwd, strings.TrimSpace(lines[0]))
 	commonDir := resolveGitPath(cwd, strings.TrimSpace(lines[1]))
-	return !pathsEqual(gitDir, commonDir)
+	return !pathsEqual(gitDir, commonDir, isWindows)
 }
 
 // resolveGitPath turns a path emitted by `git rev-parse` into a cleaned,
@@ -396,8 +399,8 @@ func resolveGitPath(cwd, p string) string {
 // pathsEqual compares two cleaned paths, honouring the case-insensitivity of
 // Windows filesystems so a drive-letter or casing difference is not mistaken
 // for a separate directory.
-func pathsEqual(a, b string) bool {
-	if runtime.GOOS == "windows" {
+func pathsEqual(a, b string, isWindows bool) bool {
+	if isWindows {
 		return strings.EqualFold(a, b)
 	}
 	return a == b

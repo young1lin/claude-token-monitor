@@ -23,7 +23,7 @@ func TestNewTableRenderer(t *testing.T) {
 	grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
 
 	// Act
-	tr := NewTableRenderer(grid)
+	tr := NewTableRenderer(grid, false)
 
 	// Assert
 	require.NotNil(t, tr, "NewTableRenderer should not return nil")
@@ -42,7 +42,7 @@ func TestRender(t *testing.T) {
 			"todo":   "3/10",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		lines := tr.Render()
@@ -63,7 +63,7 @@ func TestRender(t *testing.T) {
 			"token":  "100K/200K",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		lines := tr.Render()
@@ -91,7 +91,7 @@ func TestRender(t *testing.T) {
 			"todo":           "7/20",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		lines := tr.Render()
@@ -110,7 +110,7 @@ func TestRender(t *testing.T) {
 		// so rows may be skipped. Let's test with a completely empty content map.
 		contentMap := layout.CellContent{}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		lines := tr.Render()
@@ -127,7 +127,7 @@ func TestRender(t *testing.T) {
 			"tool-status-detail": "Read: 3 | Bash: 5 | Grep: 2",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		lines := tr.Render()
@@ -154,7 +154,7 @@ func TestRenderSingleLine(t *testing.T) {
 			"todo":   "3/10",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		result := tr.RenderSingleLine()
@@ -188,7 +188,7 @@ func TestRenderSingleLine(t *testing.T) {
 			"token":  "10K/100K",
 		}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		result := tr.RenderSingleLine()
@@ -203,7 +203,7 @@ func TestRenderSingleLine(t *testing.T) {
 		// Arrange
 		contentMap := layout.CellContent{}
 		grid := layout.NewGrid(layout.DefaultLayout(), contentMap)
-		tr := NewTableRenderer(grid)
+		tr := NewTableRenderer(grid, false)
 
 		// Act
 		result := tr.RenderSingleLine()

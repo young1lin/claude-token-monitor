@@ -2,22 +2,24 @@ package content
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
+
+// errNoClaudeDir is returned by cache helpers when the caller passed an empty
+// Claude config dir. Production code receives env.ClaudeDir from BuildEnv
+// (which resolves it once via claudedir.Resolve); tests pass it explicitly.
+// Callers treat any error as "skip cache I/O", matching the pre-refactor
+// behavior when claudedir.Resolve failed.
+var errNoClaudeDir = errors.New("content: empty Claude config dir")
 
 // Test injection points for the quota cache / filesystem layer.
 var (
-	overrideHomeDir string                // Override os.UserHomeDir() in tests
-	syncFileFn      = syncFile            // Override file sync in tests (nil = no-op)
-	currentOS       = runtime.GOOS        // Override runtime.GOOS in tests for cross-platform coverage
-	getHomeDirFn    = getEffectiveHomeDir // Override in tests for error injection
+	syncFileFn = syncFile // Override file sync in tests (nil = no-op)
 )
 
 // Cross-process cache constants (aligned with claude-hud).
@@ -113,23 +115,6 @@ func syncFile(path string) error {
 	return f.Sync()
 }
 
-// getEffectiveHomeDir returns the home directory, allowing test override.
-func getEffectiveHomeDir() (string, error) {
-	if overrideHomeDir != "" {
-		return overrideHomeDir, nil
-	}
-	return os.UserHomeDir()
-}
-
-// getClaudeConfigDir is a package-local wrapper around claudedir.Resolve that
-// plugs in the quota-cache-specific home-dir injection point (getHomeDirFn).
-// All statusline data sources that read per-account state should go through
-// the shared claudedir package — see internal/claudedir/claudedir.go for the
-// canonical resolution order.
-func getClaudeConfigDir() (string, error) {
-	return claudedir.Resolve(getHomeDirFn)
-}
-
 // getCachePath returns the cache file path for a (provider, accountKey)
 // pair inside the resolved Claude config dir.
 //
@@ -159,6 +144,10 @@ func getCachePath(claudeDir, provider, accountKey string) string {
 }
 
 // readUsageCache reads the on-disk cache for a (provider, accountKey) pair.
+// claudeDir is the active Claude config dir resolved once by BuildEnv (honoring
+// $CLAUDE_CONFIG_DIR); threaded through the cache chain so this layer never
+// calls claudedir.Resolve itself.
+//
 // Returns nil when:
 //   - the file doesn't exist (first run);
 //   - the file is corrupt;
@@ -168,9 +157,8 @@ func getCachePath(claudeDir, provider, accountKey string) string {
 //   - accountKey is supplied (non-empty) but the embedded AccountKey doesn't
 //     match it (defensive guard against manual file copy / dev typo — under
 //     normal operation the filename alone would have already isolated us).
-func readUsageCache(provider, accountKey string) *usageCacheData {
-	claudeDir, err := getClaudeConfigDir()
-	if err != nil {
+func readUsageCache(claudeDir, provider, accountKey string) *usageCacheData {
+	if claudeDir == "" {
 		return nil
 	}
 	cachePath := getCachePath(claudeDir, provider, accountKey)
@@ -200,14 +188,15 @@ func providerTagOrAnthropic(provider string) string {
 	return provider
 }
 
-// writeUsageCache writes cache atomically (temp file + rename). The
-// destination file is derived from cache.Provider so each provider's data
-// lands in its own file; callers must therefore make sure Provider is set
-// before invoking this.
-func writeUsageCache(cache *usageCacheData) error {
-	claudeDir, err := getClaudeConfigDir()
-	if err != nil {
-		return err
+// writeUsageCache writes cache atomically (temp file + rename). claudeDir is
+// the active Claude config dir resolved once by BuildEnv (honoring
+// $CLAUDE_CONFIG_DIR); threaded through the cache chain so this layer never
+// calls claudedir.Resolve itself. The destination file is derived from
+// cache.Provider so each provider's data lands in its own file; callers must
+// therefore make sure Provider is set before invoking this.
+func writeUsageCache(claudeDir string, cache *usageCacheData) error {
+	if claudeDir == "" {
+		return errNoClaudeDir
 	}
 
 	cachePath := getCachePath(claudeDir, cache.Provider, cache.AccountKey)
@@ -220,8 +209,13 @@ func writeUsageCache(cache *usageCacheData) error {
 		}
 	}
 
-	// Use nanosecond timestamp to ensure unique temp file name
-	tmpPath := cachePath + ".tmp." + strconv.FormatInt(time.Now().UnixNano(), 10)
+	// Use nanosecond timestamp to ensure unique temp file name. nowFn (not
+	// time.Now) keeps this consistent with the rest of the quota chain — env.Now
+	// is itself nowFn() captured at BuildEnv. This is pure cache mechanics (tmp
+	// file uniqueness), not a display cell, so threading env.Now through 5+ layers
+	// of cache helpers adds churn without behavioral payoff. See Task 3's goosFn
+	// comment below for the same trade-off.
+	tmpPath := cachePath + ".tmp." + strconv.FormatInt(nowFn().UnixNano(), 10)
 
 	data, err := json.Marshal(cache)
 	if err != nil {
@@ -239,8 +233,15 @@ func writeUsageCache(cache *usageCacheData) error {
 	}
 
 	// 3. Atomic replace
-	// Windows: os.Rename fails if target exists, need to remove first
-	if currentOS == "windows" {
+	// Windows: os.Rename fails if target exists, need to remove first.
+	// goosFn() is the single injectable OS seam that env.OS.IsWindows itself
+	// reads from (env.go:56); we consult it here rather than threading
+	// isWindows through 6+ layers of cache utilities (Collect →
+	// getSubscriptionQuota → getSubscriptionUsage → provider fetcher →
+	// shouldRefreshResult/writeRefreshed* → writeUsageCache), because
+	// runtime.GOOS is a process-constant and the cache path has no collector
+	// semantics that would benefit from per-invocation context.
+	if goosFn() == "windows" {
 		os.Remove(cachePath)
 	}
 	err = os.Rename(tmpPath, cachePath)
@@ -264,14 +265,24 @@ func getRateLimitedTTL(count int) time.Duration {
 }
 
 // shouldRefreshResult returns refresh decision with TTL handling for the
-// given (provider, accountKey) cache file. Callers must pass their own
-// identity so the coordination state (RefreshingSince, rate-limit backoff)
-// stays scoped to one backend AND one account — an Anthropic 429 must not
-// throttle GLM, and a GLM-Pro 429 must not throttle GLM-Lite.
+// given (provider, accountKey) cache file. claudeDir is the active Claude
+// config dir resolved once by BuildEnv (honoring $CLAUDE_CONFIG_DIR);
+// threaded through the cache chain so this layer never calls
+// claudedir.Resolve itself. Callers must pass their own identity so the
+// coordination state (RefreshingSince, rate-limit backoff) stays scoped to
+// one backend AND one account — an Anthropic 429 must not throttle GLM, and
+// a GLM-Pro 429 must not throttle GLM-Lite.
+//
+// nowFn (not time.Now) is used for the TTL clock so tests can pin the cache
+// expiry; env.Now is itself nowFn() captured at BuildEnv, so production sees
+// real wall-clock. Threading env.Now here would require changing every cache
+// helper signature (writeUsageCache / writeRefreshedCache / writeRefreshFailedCache)
+// AND their callers in getAnthropicUsageFromAPI / getGLMUsage — the same
+// cost/benefit trade-off Task 3 resolved by reading goosFn() inline.
 // Returns: (shouldRefresh, cache, isRateLimitedBackoff).
-func shouldRefreshResult(provider, accountKey string) (bool, *usageCacheData, bool) {
-	now := time.Now()
-	cache := readUsageCache(provider, accountKey)
+func shouldRefreshResult(claudeDir, provider, accountKey string) (bool, *usageCacheData, bool) {
+	now := nowFn()
+	cache := readUsageCache(claudeDir, provider, accountKey)
 
 	// Case 1: No cache file (first run)
 	if cache == nil {
@@ -321,7 +332,7 @@ func shouldRefreshResult(provider, accountKey string) (bool, *usageCacheData, bo
 	// Case 4: Cache expired, no one is refreshing
 	// Mark "refreshing" and return
 	cache.RefreshingSince = now
-	if err := writeUsageCache(cache); err != nil {
+	if err := writeUsageCache(claudeDir, cache); err != nil {
 		// Write failed (maybe another process writing at same time), use expired cache
 		return false, cache, false
 	}
@@ -330,7 +341,7 @@ func shouldRefreshResult(provider, accountKey string) (bool, *usageCacheData, bo
 	// We wrote at time 'now', so if we read back a timestamp earlier than 'now',
 	// it means another process wrote before us and we should use their result
 	time.Sleep(refreshCoordDelay)
-	latestCache := readUsageCache(provider, accountKey)
+	latestCache := readUsageCache(claudeDir, provider, accountKey)
 	if latestCache != nil && !latestCache.RefreshingSince.IsZero() && latestCache.RefreshingSince.Before(now) {
 		// Another process marked refresh first (their timestamp is earlier than ours)
 		return false, latestCache, false
@@ -339,8 +350,12 @@ func shouldRefreshResult(provider, accountKey string) (bool, *usageCacheData, bo
 	return true, cache, false // We are responsible for refresh, cache as fallback
 }
 
-// writeRefreshedCache writes successful refresh result
-func writeRefreshedCache(usage *UsageData, oldCache *usageCacheData) error {
+// writeRefreshedCache writes successful refresh result. claudeDir is the
+// active Claude config dir threaded down from the collector. FetchedAt uses
+// nowFn for the same reason shouldRefreshResult does (see its doc comment) —
+// cache mechanics, not display, and threading env.Now would ripple through
+// every cache helper signature.
+func writeRefreshedCache(claudeDir string, usage *UsageData, oldCache *usageCacheData) error {
 	// Safely get last good data from old cache (may be nil)
 	var lastGoodData *usageCacheData
 	if oldCache != nil {
@@ -352,7 +367,7 @@ func writeRefreshedCache(usage *UsageData, oldCache *usageCacheData) error {
 		SevenDay:         usage.SevenDay,
 		FiveHourResetAt:  usage.FiveHourResetAt,
 		SevenDayResetAt:  usage.SevenDayResetAt,
-		FetchedAt:        time.Now(),
+		FetchedAt:        nowFn(),
 		RefreshingSince:  time.Time{}, // Clear refresh flag
 		APIUnavailable:   false,
 		APIError:         "",
@@ -384,10 +399,11 @@ func writeRefreshedCache(usage *UsageData, oldCache *usageCacheData) error {
 		}
 	}
 
-	return writeUsageCache(cache)
+	return writeUsageCache(claudeDir, cache)
 }
 
-// writeRefreshFailedCache writes failed refresh result.
+// writeRefreshFailedCache writes failed refresh result. claudeDir is the
+// active Claude config dir threaded down from the collector.
 //
 // provider + accountKey together tag the cache entry with whichever backend
 // AND account was attempted (e.g. "glm-zhipu" + "a1b2c3d4e5f6"). The pair is
@@ -403,8 +419,12 @@ func writeRefreshedCache(usage *UsageData, oldCache *usageCacheData) error {
 // Pass provider == "" to leave the existing Provider tag on oldCache in
 // place — historically useful for symmetry with old call sites; in practice
 // both current callers pass an explicit value.
-func writeRefreshFailedCache(oldCache *usageCacheData, isRateLimited bool, retryAfterSec int, provider, accountKey string) error {
-	now := time.Now()
+//
+// nowFn (not time.Now) is used for the TTL clock — same trade-off as
+// shouldRefreshResult above: cache mechanics, not display, and env.Now is
+// already nowFn() captured at BuildEnv.
+func writeRefreshFailedCache(claudeDir string, oldCache *usageCacheData, isRateLimited bool, retryAfterSec int, provider, accountKey string) error {
+	now := nowFn()
 
 	// Preserve old data if available
 	if oldCache != nil {
@@ -435,7 +455,7 @@ func writeRefreshFailedCache(oldCache *usageCacheData, isRateLimited bool, retry
 			oldCache.RateLimitedCount = 0 // Reset on non-rate-limit error
 		}
 
-		return writeUsageCache(oldCache)
+		return writeUsageCache(claudeDir, oldCache)
 	}
 
 	// No old data, record failure
@@ -461,7 +481,7 @@ func writeRefreshFailedCache(oldCache *usageCacheData, isRateLimited bool, retry
 			cache.RetryAfterUntil = now.Add(ttl)
 		}
 	}
-	return writeUsageCache(cache)
+	return writeUsageCache(claudeDir, cache)
 }
 
 // fallbackOrNil returns cache data as UsageData or nil

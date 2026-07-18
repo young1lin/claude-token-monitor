@@ -58,18 +58,21 @@ func getIdleWarnThreshold() time.Duration {
 // when no transcript activity has been seen for more than idleWarnThreshold.
 // "Last activity" is the newest transcript entry timestamp (SessionEnd); a
 // zero SessionEnd (no transcript parsed yet) yields no marker rather than a
-// false alarm. nowFn (not time.Now) is used so the displayed time and the
-// idle calculation stay consistent and both are pinnable in tests.
-func (c *CurrentTimeCollector) Collect(_ *StatusLineInput, summary *TranscriptSummary) (string, error) {
-	return fmt.Sprintf("🕐 %s%s", nowFn().Format("2006-01-02 15:04"), idleSuffix(summary)), nil
+// false alarm. Reads env.Now (snapshotted once at BuildEnv) so the displayed
+// time and the idle calculation stay consistent and both are pinnable in tests
+// via the nowFn seam that BuildEnv reads from.
+func (c *CurrentTimeCollector) Collect(env *Env) (string, error) {
+	summary := env.Summary
+	return fmt.Sprintf("🕐 %s%s", env.Now.Format("2006-01-02 15:04"), idleSuffix(summary, env.Now)), nil
 }
 
 // idleSuffix returns the coloured staleness marker for the time cell, or ""
 // when the session is still active, the marker is disabled, or there is no
 // known last-activity timestamp. Yellow once past the threshold, red once
 // notably stale (3× threshold — 15 min at the default 5 min, scales if the
-// threshold is tuned).
-func idleSuffix(summary *TranscriptSummary) string {
+// threshold is tuned). The caller threads env.Now so the idle duration is
+// computed against the same snapshot the time cell renders.
+func idleSuffix(summary *TranscriptSummary, now time.Time) string {
 	if summary == nil || summary.SessionEnd.IsZero() {
 		return ""
 	}
@@ -77,7 +80,7 @@ func idleSuffix(summary *TranscriptSummary) string {
 	if threshold <= 0 {
 		return "" // disabled via config (STATUSLINE_IDLE_WARN_SECONDS=0)
 	}
-	idle := nowFn().Sub(summary.SessionEnd)
+	idle := now.Sub(summary.SessionEnd)
 	if idle <= threshold {
 		return ""
 	}

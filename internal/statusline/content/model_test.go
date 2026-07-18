@@ -47,7 +47,7 @@ func TestModelCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 
 			// Assert
 			require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestTokenBarCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 
 			// Assert
 			require.NoError(t, err)
@@ -154,7 +154,7 @@ func TestTokenInfoCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 
 			// Assert
 			require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestTokenBarCollector_ExtendedWindow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 			require.NoError(t, err)
 			assert.True(t, strings.Contains(got, tt.wantColor), "want %q to contain %q", got, tt.wantColor)
 		})
@@ -310,7 +310,7 @@ func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
 		// the floor. We assert (a) the green colour code is present AND
 		// (b) at least one filled "█" character appears.
 		input := makeStatusInput(93_900, 0, 0, 1_000_000)
-		got, err := collector.Collect(input, nil)
+		got, err := collector.Collect(&Env{Input: input})
 		require.NoError(t, err)
 		assert.Contains(t, got, "\x1b[1;32m", "green tier must be applied")
 		assert.Contains(t, got, "█", "must paint at least one filled block")
@@ -320,7 +320,7 @@ func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
 		// 0 usage should still render an unfilled bar — the floor only
 		// kicks in when tokens > 0.
 		input := makeStatusInput(0, 0, 0, 1_000_000)
-		got, err := collector.Collect(input, nil)
+		got, err := collector.Collect(&Env{Input: input})
 		require.NoError(t, err)
 		assert.NotContains(t, got, "█", "zero usage must not paint a fill block")
 	})
@@ -329,7 +329,7 @@ func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
 		// 10K out of 200K = 5% → also rounds to 0 fillWidth pre-floor;
 		// the fix must apply to the legacy ≤200K path too, not just 1M.
 		input := makeStatusInput(10_000, 0, 0, 200_000)
-		got, err := collector.Collect(input, nil)
+		got, err := collector.Collect(&Env{Input: input})
 		require.NoError(t, err)
 		assert.Contains(t, got, "\x1b[1;92m", "bright green tier must be applied")
 		assert.Contains(t, got, "█", "must paint at least one filled block")
@@ -354,7 +354,7 @@ func TestTokenInfoCollector_ExtendedWindow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 			require.NoError(t, err)
 			assert.Contains(t, got, tt.wantColor)
 		})
@@ -405,7 +405,7 @@ func TestTokenInfoCollector_PercentColoured(t *testing.T) {
 	collector := NewTokenInfoCollector()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := collector.Collect(tt.input, nil)
+			got, err := collector.Collect(&Env{Input: tt.input})
 			require.NoError(t, err)
 			// The percentage must be wrapped exactly: "(\x1b[...m12.9%\x1b[0m)".
 			assert.Contains(t, got, "("+tt.wantColor+tt.wantPct+"\x1b[0m)")
@@ -512,7 +512,7 @@ func TestSessionTotalCollector_Collect(t *testing.T) {
 			input.Cost.TotalCostUSD = tt.costUSD
 
 			// Act
-			got, err := collector.Collect(input, nil)
+			got, err := collector.Collect(&Env{Input: input})
 
 			// Assert
 			require.NoError(t, err)

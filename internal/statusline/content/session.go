@@ -20,7 +20,8 @@ func NewAgentCollector() *AgentCollector {
 }
 
 // Collect returns agent information
-func (c *AgentCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
+func (c *AgentCollector) Collect(env *Env) (string, error) {
+	transcriptSummary := env.Summary
 	if len(transcriptSummary.Agents) == 0 {
 		return "", nil
 	}
@@ -50,7 +51,8 @@ func NewTodoCollector() *TodoCollector {
 }
 
 // Collect returns TODO progress
-func (c *TodoCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
+func (c *TodoCollector) Collect(env *Env) (string, error) {
+	transcriptSummary := env.Summary
 	if transcriptSummary.TodoTotal == 0 {
 		return "", nil
 	}
@@ -73,7 +75,8 @@ func NewToolsCollector() *ToolsCollector {
 }
 
 // Collect returns tool usage statistics
-func (c *ToolsCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
+func (c *ToolsCollector) Collect(env *Env) (string, error) {
+	transcriptSummary := env.Summary
 	if len(transcriptSummary.CompletedTools) == 0 {
 		return "", nil
 	}
@@ -97,7 +100,8 @@ func NewSessionDurationCollector() *SessionDurationCollector {
 }
 
 // Collect returns session duration
-func (c *SessionDurationCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
+func (c *SessionDurationCollector) Collect(env *Env) (string, error) {
+	transcriptSummary := env.Summary
 	if transcriptSummary.SessionStart.IsZero() {
 		return "", nil
 	}
@@ -105,7 +109,9 @@ func (c *SessionDurationCollector) Collect(_ *StatusLineInput, transcriptSummary
 	if !transcriptSummary.SessionEnd.IsZero() {
 		duration = transcriptSummary.SessionEnd.Sub(transcriptSummary.SessionStart)
 	} else {
-		duration = time.Since(transcriptSummary.SessionStart)
+		// env.Now (not time.Since) so the displayed duration stays consistent
+		// with the other time-dependent cells and is pinnable in tests.
+		duration = env.Now.Sub(transcriptSummary.SessionStart)
 	}
 	return fmt.Sprintf("⏱️ %s", formatDuration(duration)), nil
 }
@@ -123,7 +129,8 @@ func NewToolStatusDetailCollector() *ToolStatusDetailCollector {
 }
 
 // Collect returns per-tool call breakdown with success/failure indicators
-func (c *ToolStatusDetailCollector) Collect(_ *StatusLineInput, transcriptSummary *TranscriptSummary) (string, error) {
+func (c *ToolStatusDetailCollector) Collect(env *Env) (string, error) {
+	transcriptSummary := env.Summary
 	if len(transcriptSummary.CompletedTools) == 0 && len(transcriptSummary.FailedTools) == 0 {
 		return "", nil
 	}

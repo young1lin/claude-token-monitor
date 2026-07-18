@@ -10,48 +10,9 @@ import (
 // ansiRegex matches ANSI escape sequences (color codes, etc.)
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// UseNarrowBlockWidth controls whether Block Elements (█░▓▒ etc.)
-// should be treated as width 1 for consistent rendering.
-// This is needed for terminals like VSCode/WARP that render ALL
-// Block Elements as width 1, while go-runewidth reports █ as width 2.
-var UseNarrowBlockWidth = false
-
 // isBlockElement checks if a rune is a Block Elements character (U+2580-U+259F)
 func isBlockElement(r rune) bool {
-	return r >= '\u2580' && r <= '\u259F'
-}
-
-// displayWidth returns the visible width of a string, ignoring ANSI escape
-// sequences.
-//   - When UseNarrowBlockWidth is true, Block Elements (█░▓▒) are treated as
-//     width 1 (terminals like macOS Terminal.app render them narrow).
-//   - A base character immediately followed by U+FE0F (Variation Selector-16,
-//     emoji presentation) is promoted to width 2. go-runewidth undercounts
-//     emoji-presentation symbols such as 🗂 (U+1F5C2) as width 1, while every
-//     terminal renders them as a 2-cell color emoji — without this override the
-//     column alignment drifts.
-func displayWidth(s string) int {
-	// Strip ANSI codes first
-	s = ansiRegex.ReplaceAllString(s, "")
-
-	runes := []rune(s)
-	width := 0
-	for i, r := range runes {
-		// U+FE0F adds no width on its own; it is accounted for via the base rune.
-		if r == '\uFE0F' {
-			continue
-		}
-		w := runewidth.RuneWidth(r)
-		if isBlockElement(r) && UseNarrowBlockWidth {
-			w = 1
-		}
-		// Emoji presentation selector follows → render as a wide 2-cell emoji.
-		if i+1 < len(runes) && runes[i+1] == '\uFE0F' && w < 2 {
-			w = 2
-		}
-		width += w
-	}
-	return width
+	return r >= '▀' && r <= '▟'
 }
 
 // rowMeta holds a compacted row together with its alignment metadata
@@ -60,14 +21,55 @@ type rowMeta struct {
 	noAlign bool
 }
 
-// Renderer renders a grid to output lines
+// Renderer renders a grid to output lines. The narrow flag controls whether
+// Block Elements (█░▓▒) are treated as width 1 — needed for terminals
+// (macOS Terminal.app, VSCode, WARP, Windows conhost) that render them narrow
+// while go-runewidth reports █ as width 2. Threading it as an instance field
+// (instead of reading a package global) keeps the renderer stateful and
+// testable: each process constructs one Renderer with the value resolved once
+// from env.Terminal.NarrowBlock, and every width query is self-consistent.
 type Renderer struct {
-	grid *Grid
+	grid   *Grid
+	narrow bool
 }
 
-// NewRenderer creates a new grid renderer
-func NewRenderer(grid *Grid) *Renderer {
-	return &Renderer{grid: grid}
+// NewRenderer creates a new grid renderer. The narrow flag is consulted by
+// displayWidth to decide the rendered width of Block Elements.
+func NewRenderer(grid *Grid, narrow bool) *Renderer {
+	return &Renderer{grid: grid, narrow: narrow}
+}
+
+// displayWidth returns the visible width of a string, ignoring ANSI escape
+// sequences.
+//   - When r.narrow is true, Block Elements (█░▓▒) are treated as width 1
+//     (terminals like macOS Terminal.app render them narrow).
+//   - A base character immediately followed by U+FE0F (Variation Selector-16,
+//     emoji presentation) is promoted to width 2. go-runewidth undercounts
+//     emoji-presentation symbols such as 🗂 (U+1F5C2) as width 1, while every
+//     terminal renders them as a 2-cell color emoji — without this override the
+//     column alignment drifts.
+func (r *Renderer) displayWidth(s string) int {
+	// Strip ANSI codes first
+	s = ansiRegex.ReplaceAllString(s, "")
+
+	runes := []rune(s)
+	width := 0
+	for i, c := range runes {
+		// U+FE0F adds no width on its own; it is accounted for via the base rune.
+		if c == '️' {
+			continue
+		}
+		w := runewidth.RuneWidth(c)
+		if isBlockElement(c) && r.narrow {
+			w = 1
+		}
+		// Emoji presentation selector follows → render as a wide 2-cell emoji.
+		if i+1 < len(runes) && runes[i+1] == '️' && w < 2 {
+			w = 2
+		}
+		width += w
+	}
+	return width
 }
 
 // Render renders the grid to a slice of output lines
@@ -169,7 +171,7 @@ func (r *Renderer) calculateColumnWidths(rows [][]string) []int {
 		maxWidth := 0
 		for _, row := range rows {
 			if col < len(row) {
-				width := displayWidth(row[col])
+				width := r.displayWidth(row[col])
 				if width > maxWidth {
 					maxWidth = width
 				}
@@ -195,7 +197,7 @@ func (r *Renderer) renderRowWithAlignment(row []string, colWidths []int) string 
 		// Only add padding and separator if this is not the last column
 		if col < len(row)-1 {
 			// Calculate padding needed for this column
-			cellWidth := displayWidth(cell)
+			cellWidth := r.displayWidth(cell)
 			targetWidth := colWidths[col]
 			padding := targetWidth - cellWidth
 			if padding < 0 {

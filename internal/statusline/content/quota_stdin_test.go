@@ -60,7 +60,7 @@ func TestBuildAnthropicUsageFromStdin_FromRealPayload(t *testing.T) {
 	writeTestCredentials(t, homeDir, "tok", "max", time.Now().Add(24*time.Hour).UnixMilli())
 
 	input := loadRealCCInput(t)
-	got := buildAnthropicUsageFromStdin(input.RateLimits)
+	got := buildAnthropicUsageFromStdin(input.RateLimits, resolveTestClaudeDir())
 
 	require.NotNil(t, got)
 	assert.Equal(t, "anthropic", got.Provider)
@@ -78,7 +78,7 @@ func TestBuildAnthropicUsageFromStdin_MissingResetsAtStaysZero(t *testing.T) {
 
 	got := buildAnthropicUsageFromStdin(&StdinRateLimits{
 		FiveHour: &StdinRateLimitWindow{UsedPercentage: 5, ResetsAt: 0},
-	})
+	}, resolveTestClaudeDir())
 	require.NotNil(t, got)
 	assert.True(t, got.FiveHourResetAt.IsZero(), "ResetsAt=0 must produce zero time")
 	assert.True(t, got.SevenDayResetAt.IsZero(), "nil SevenDay window must produce zero time")
@@ -90,7 +90,7 @@ func TestBuildAnthropicUsageFromStdin_NoCredentialsStillReturnsPercentages(t *te
 	setupTempHomeDir(t)
 
 	input := loadRealCCInput(t)
-	got := buildAnthropicUsageFromStdin(input.RateLimits)
+	got := buildAnthropicUsageFromStdin(input.RateLimits, resolveTestClaudeDir())
 
 	require.NotNil(t, got)
 	assert.InDelta(t, 27.0, got.FiveHour, 0.01)
@@ -103,7 +103,7 @@ func TestBuildAnthropicUsageFromStdin_TeamPlan(t *testing.T) {
 	writeTestCredentials(t, homeDir, "tok", "claude-team", time.Now().Add(24*time.Hour).UnixMilli())
 
 	input := loadRealCCInput(t)
-	got := buildAnthropicUsageFromStdin(input.RateLimits)
+	got := buildAnthropicUsageFromStdin(input.RateLimits, resolveTestClaudeDir())
 	require.NotNil(t, got)
 	assert.Equal(t, "Team", got.PlanLevel)
 }
@@ -123,7 +123,7 @@ func TestGetAnthropicUsage_StdinFastPath_SkipsAPI(t *testing.T) {
 	homeDir := setupTempHomeDir(t)
 	writeTestCredentials(t, homeDir, "tok", "max", time.Now().Add(24*time.Hour).UnixMilli())
 
-	got := getAnthropicUsage(loadRealCCInput(t))
+	got := getAnthropicUsage(loadRealCCInput(t), resolveTestClaudeDir())
 
 	require.NotNil(t, got)
 	assert.InDelta(t, 27.0, got.FiveHour, 0.01)
@@ -149,7 +149,7 @@ func TestGetAnthropicUsage_FallbackHitsAPIWhenStdinAbsent(t *testing.T) {
 	input := loadRealCCInput(t)
 	input.RateLimits = nil // pretend host predates the field
 
-	got := getAnthropicUsage(input)
+	got := getAnthropicUsage(input, resolveTestClaudeDir())
 
 	require.NotNil(t, got)
 	assert.InDelta(t, 42.0, got.FiveHour, 0.01)
@@ -169,7 +169,7 @@ func TestGetAnthropicUsage_NilInputStillUsesAPI(t *testing.T) {
 	homeDir := setupTempHomeDir(t)
 	writeTestCredentials(t, homeDir, "tok", "max", time.Now().Add(24*time.Hour).UnixMilli())
 
-	_ = getAnthropicUsage(nil)
+	_ = getAnthropicUsage(nil, resolveTestClaudeDir())
 	assert.Equal(t, int32(1), atomic.LoadInt32(&hits), "nil input still routes to API")
 }
 
@@ -180,7 +180,8 @@ func TestGetAnthropicUsage_NilInputStillUsesAPI(t *testing.T) {
 func TestGetSubscriptionQuota_StdinPath_RendersPlanLabel(t *testing.T) {
 	// Pin "now" so the 4h32m countdown is deterministic. Fixture's 5h reset
 	// is 1779798600; back off by 4h32m to land in the middle of the window.
-	mockNow(t, time.Unix(1779798600, 0).Add(-4*time.Hour-32*time.Minute))
+	now := time.Unix(1779798600, 0).Add(-4*time.Hour - 32*time.Minute)
+	mockNow(t, now)
 
 	// Force Anthropic provider regardless of the host's ANTHROPIC_BASE_URL.
 	t.Setenv("ANTHROPIC_BASE_URL", "")
@@ -199,7 +200,7 @@ func TestGetSubscriptionQuota_StdinPath_RendersPlanLabel(t *testing.T) {
 		_, _ = w.Write([]byte(`{"five_hour":{"utilization":99,"resets_at":"2030-01-01T00:00:00Z"}}`))
 	})
 
-	out := getSubscriptionQuota(loadRealCCInput(t))
+	out := getSubscriptionQuota(loadRealCCInput(t), now, detectProviderInfo(), resolveTestClaudeDir())
 	assert.Contains(t, out, "[Max]", "Max plan label must appear when credentials say claude-max")
 	assert.Contains(t, out, "27%", "5h percentage must come from stdin, not API")
 	assert.NotContains(t, out, "99%", "API value must NOT leak into stdin-path output")

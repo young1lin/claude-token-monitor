@@ -80,7 +80,7 @@ func TestAgentCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			got, err := collector.Collect(&Env{Summary: tt.summary})
 
 			// Assert
 			if tt.wantErr {
@@ -143,7 +143,7 @@ func TestTodoCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			got, err := collector.Collect(&Env{Summary: tt.summary})
 
 			// Assert
 			if tt.wantErr {
@@ -208,7 +208,7 @@ func TestToolsCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			got, err := collector.Collect(&Env{Summary: tt.summary})
 
 			// Assert
 			if tt.wantErr {
@@ -260,8 +260,9 @@ func TestSessionDurationCollector_Collect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			// Act \u2014 env.Now mirrors what BuildEnv would snapshot in
+			// production; the "no end" case uses it to compute duration.
+			got, err := collector.Collect(&Env{Summary: tt.summary, Now: time.Now()})
 
 			// Assert
 			if tt.wantErr {
@@ -351,7 +352,7 @@ func TestToolStatusDetailCollector_Collect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			got, err := collector.Collect(&Env{Summary: tt.summary})
 
 			// Assert
 			if tt.wantErr {
@@ -383,7 +384,7 @@ func TestToolStatusDetailCollector_Collect(t *testing.T) {
 		}
 
 		// Act
-		got, err := collector.Collect(nil, summary)
+		got, err := collector.Collect(&Env{Summary: summary})
 
 		// Assert
 		require.NoError(t, err)
@@ -444,10 +445,10 @@ func TestToolStatusDetailCollector_EmptyMaps(t *testing.T) {
 	collector := NewToolStatusDetailCollector()
 
 	// Both maps are empty (not nil)
-	got, err := collector.Collect(nil, &TranscriptSummary{
+	got, err := collector.Collect(&Env{Summary: &TranscriptSummary{
 		CompletedTools: map[string]int{},
 		FailedTools:    map[string]int{},
-	})
+	}})
 
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -466,7 +467,7 @@ func TestToolStatusDetailCollector_FailedToolsSorted(t *testing.T) {
 	}
 
 	// Act
-	got, err := collector.Collect(nil, summary)
+	got, err := collector.Collect(&Env{Summary: summary})
 
 	// Assert
 	require.NoError(t, err)
@@ -490,7 +491,7 @@ func TestToolStatusDetailCollector_MixedWithANSICodes(t *testing.T) {
 		FailedTools:    map[string]int{"Bash": 2},
 	}
 
-	got, err := collector.Collect(nil, summary)
+	got, err := collector.Collect(&Env{Summary: summary})
 	require.NoError(t, err)
 	assert.Contains(t, got, "\x1b[1;32m") // green for success
 	assert.Contains(t, got, "\x1b[1;31m") // red for failure

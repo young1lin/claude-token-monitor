@@ -112,23 +112,27 @@ func NewQuotaCollector() *QuotaCollector {
 }
 
 // Collect returns subscription quota usage
-func (c *QuotaCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	return getSubscriptionQuota(statusInput), nil
+func (c *QuotaCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	return getSubscriptionQuota(statusInput, env.Now, env.Provider, env.ClaudeDir), nil
 }
 
 // getSubscriptionUsage dispatches to the right provider's usage fetcher based
-// on $ANTHROPIC_BASE_URL. Returns nil for "custom" third-party proxies — we
-// have no way to query their quota.
-func getSubscriptionUsage(input *StatusLineInput) *UsageData {
-	switch p := detectProvider(); {
+// on the kind resolved once by detectProviderInfo (carried on provider.Kind).
+// claudeDir is the active Claude config dir threaded down from the collector
+// so the per-provider fetchers never call claudedir.Resolve themselves.
+// Returns nil for "custom" third-party proxies — we have no way to query
+// their quota.
+func getSubscriptionUsage(input *StatusLineInput, provider ProviderInfo, claudeDir string) *UsageData {
+	switch p := provider.Kind; {
 	case p.isGLM():
-		return getGLMUsage(input, p)
+		return getGLMUsage(input, provider, claudeDir)
 	case p == providerCustom:
 		// Unknown third-party endpoint (router, proxy, mock). Hide the line
 		// rather than show stale Anthropic data or fail noisily.
 		return nil
 	default:
-		return getAnthropicUsage(input)
+		return getAnthropicUsage(input, claudeDir)
 	}
 }
 
@@ -166,6 +170,15 @@ func formatResetCountdown(d time.Duration) string {
 // of windows, optionally prefixed by a "[Plan]" label. Countdown format is
 // timezone-free, so no "(UTC±N)" suffix is needed.
 //
+// The caller threads env.Now, env.Provider, and env.ClaudeDir so the
+// countdown is computed against the same time snapshot the other
+// time-dependent cells (current time, session duration) render against, the
+// provider kind / base URL / auth token resolved once in BuildEnv flow
+// through without any further os.Getenv reads, and the per-account Claude
+// config dir resolved once in BuildEnv flows through without any further
+// claudedir.Resolve calls. In tests the time snapshot is pinnable via the
+// nowFn seam that BuildEnv reads from.
+//
 // Output shape depends on Provider:
 //
 //   - Anthropic (legacy): always renders both 5h and 7d, even when zero:
@@ -184,19 +197,17 @@ func formatResetCountdown(d time.Duration) string {
 // "[glm-5.1]" model tag style) and is followed by a single space — NOT a
 // "·" — so the label visually groups with the windows rather than becoming
 // a separate "column".
-func getSubscriptionQuota(input *StatusLineInput) string {
+func getSubscriptionQuota(input *StatusLineInput, now time.Time, provider ProviderInfo, claudeDir string) string {
 	var usage *UsageData
 	if getSubscriptionUsageFn != nil {
 		usage = getSubscriptionUsageFn()
 	} else {
-		usage = getSubscriptionUsage(input)
+		usage = getSubscriptionUsage(input, provider, claudeDir)
 	}
 
 	if usage == nil {
 		return ""
 	}
-
-	now := nowFn()
 	// Empty provider means "written by pre-multiprovider code" or "Anthropic
 	// path didn't bother tagging itself"; either way render the legacy shape.
 	isAnthropic := usage.Provider == "" || usage.Provider == "anthropic"

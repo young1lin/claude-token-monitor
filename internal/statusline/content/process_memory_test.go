@@ -88,7 +88,7 @@ func TestParentMemoryCollector_Success(t *testing.T) {
 	c := NewParentMemoryCollector()
 
 	// Act
-	got, err := c.Collect(nil, nil)
+	got, err := c.Collect(&Env{})
 
 	// Assert
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestParentMemoryCollector_ErrorReturnsEmpty(t *testing.T) {
 	c := NewParentMemoryCollector()
 
 	// Act
-	got, err := c.Collect(nil, nil)
+	got, err := c.Collect(&Env{})
 
 	// Assert
 	require.NoError(t, err)
@@ -120,7 +120,7 @@ func TestParentMemoryCollector_NilInputAndSummary(t *testing.T) {
 	c := NewParentMemoryCollector()
 
 	// Act — nil input and nil summary should still work
-	got, err := c.Collect(nil, nil)
+	got, err := c.Collect(&Env{})
 
 	// Assert
 	require.NoError(t, err)

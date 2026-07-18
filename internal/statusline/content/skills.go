@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // SkillsCollector collects skills information
@@ -22,19 +20,20 @@ func NewSkillsCollector() *SkillsCollector {
 }
 
 // Collect returns skills display string
-func (c *SkillsCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	userCount := getUserSkillsCount()
+func (c *SkillsCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	userCount := getUserSkillsCount(env.ClaudeDir)
 	projectCount := getProjectSkillsCount(statusInput.Cwd)
 
 	return formatSkillsDisplay(projectCount, userCount), nil
 }
 
 // getUserSkillsCount counts user-level skills in the active Claude config
-// dir's skills/ folder. Honors $CLAUDE_CONFIG_DIR so multi-account users see
+// dir's skills/ folder. claudeDir is the active Claude config dir resolved
+// once by BuildEnv (honoring $CLAUDE_CONFIG_DIR) so multi-account users see
 // the right account's skill count, not whatever is under ~/.claude.
-func getUserSkillsCount() int {
-	claudeDir, err := claudedir.Resolve(defaultFileSystem.UserHomeDir)
-	if err != nil {
+func getUserSkillsCount(claudeDir string) int {
+	if claudeDir == "" {
 		return 0
 	}
 	return countSkillDirs(filepath.Join(claudeDir, "skills"))

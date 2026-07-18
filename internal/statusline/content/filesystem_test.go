@@ -100,7 +100,10 @@ func TestMemoryFilesCollector(t *testing.T) {
 	assert.True(t, collector.Optional())
 
 	// Valid input
-	result, err := collector.Collect(&StatusLineInput{Cwd: "/project"}, nil)
+	result, err := collector.Collect(&Env{
+		Input:     &StatusLineInput{Cwd: "/project"},
+		ClaudeDir: "/home/test/.claude",
+	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, result)
 }
@@ -116,7 +119,7 @@ func TestMemoryFilesCollector_EmptyProject(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	result := getMemoryFilesInfoCached("/project")
+	result := getMemoryFilesInfoCached("/project", false, time.Now(), "/home/test/.claude")
 	assert.Equal(t, MemoryFilesInfo{}, result)
 }
 
@@ -140,7 +143,7 @@ func TestGetMemoryFilesInfo_WithRules(t *testing.T) {
 	}
 	defaultFileSystem = fs
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 2, info.RulesCount)
 }
 
@@ -164,7 +167,7 @@ func TestGetMemoryFilesInfo_WithRecursiveRules(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 2, info.RulesCount) // rule1.md + nested.md
 }
 
@@ -180,7 +183,7 @@ func TestGetMemoryFilesInfo_WithMCP(t *testing.T) {
 		},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 2, info.MCPCount)
 }
 
@@ -196,7 +199,7 @@ func TestGetMemoryFilesInfo_MCPFromSettings(t *testing.T) {
 		},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 2, info.MCPCount)
 }
 
@@ -215,7 +218,7 @@ func TestGetMemoryFilesInfo_WithClaudeMd(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	info := getMemoryFilesInfo("/project", false, "/home/test/.claude")
 	assert.Equal(t, 4, info.CLAUDEMdCount) // 3 project + 1 global
 }
 
@@ -233,7 +236,10 @@ func TestGetMemoryFilesInfo_CacheHit(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info1 := getMemoryFilesInfoCached("/project")
+	// Pin one `now` for both calls so the TTL check sees the cache as fresh —
+	// mirrors how a single env.Now snapshot flows through the collector chain.
+	now := time.Now()
+	info1 := getMemoryFilesInfoCached("/project", false, now, "/home/test/.claude")
 	assert.Equal(t, 1, info1.RulesCount)
 
 	// Replace fs — should still use cache
@@ -244,7 +250,7 @@ func TestGetMemoryFilesInfo_CacheHit(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info2 := getMemoryFilesInfoCached("/project")
+	info2 := getMemoryFilesInfoCached("/project", false, now, "/home/test/.claude")
 	assert.Equal(t, info1, info2)
 }
 
@@ -259,7 +265,9 @@ func TestGetMemoryFilesInfo_HomeDirError(t *testing.T) {
 		ReadFileReturns: map[string][]byte{},
 	}
 
-	info := getMemoryFilesInfo("/project")
+	// Empty claudeDir mirrors what BuildEnv would produce when home resolution
+	// fails — global lookups must be skipped, but project-local ones still run.
+	info := getMemoryFilesInfo("/project", false, "")
 	// Should not crash, just skip global paths
 	assert.Equal(t, 0, info.CLAUDEMdCount)
 }
@@ -287,7 +295,10 @@ func TestSkillsCollector(t *testing.T) {
 	assert.True(t, collector.Optional())
 
 	// Valid input
-	result, err := collector.Collect(&StatusLineInput{Cwd: "/project"}, nil)
+	result, err := collector.Collect(&Env{
+		Input:     &StatusLineInput{Cwd: "/project"},
+		ClaudeDir: "/home/test/.claude",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "🎯 3 skills(2 proj + 1 user)", result)
 }
@@ -301,7 +312,10 @@ func TestSkillsCollector_NoSkills(t *testing.T) {
 	}
 
 	collector := NewSkillsCollector()
-	result, err := collector.Collect(&StatusLineInput{Cwd: "/project"}, nil)
+	result, err := collector.Collect(&Env{
+		Input:     &StatusLineInput{Cwd: "/project"},
+		ClaudeDir: "/home/test/.claude",
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "", result)
 }
@@ -319,7 +333,10 @@ func TestSkillsCollector_OnlyProjectSkills(t *testing.T) {
 		},
 	}
 
-	result, _ := NewSkillsCollector().Collect(&StatusLineInput{Cwd: "/project"}, nil)
+	result, _ := NewSkillsCollector().Collect(&Env{
+		Input:     &StatusLineInput{Cwd: "/project"},
+		ClaudeDir: "/home/test/.claude",
+	})
 	assert.Equal(t, "🎯 1 proj skills", result)
 }
 
@@ -335,7 +352,10 @@ func TestSkillsCollector_OnlyUserSkills(t *testing.T) {
 		},
 	}
 
-	result, _ := NewSkillsCollector().Collect(&StatusLineInput{Cwd: "/project"}, nil)
+	result, _ := NewSkillsCollector().Collect(&Env{
+		Input:     &StatusLineInput{Cwd: "/project"},
+		ClaudeDir: "/home/test/.claude",
+	})
 	assert.Equal(t, "🎯 1 user skills", result)
 }
 

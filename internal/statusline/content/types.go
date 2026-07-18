@@ -43,14 +43,15 @@ type Content struct {
 
 // ContentCollector is the interface for content collectors.
 //
-// Collect receives the already-parsed stdin payload and transcript summary as
-// concrete pointers. A collector that only needs one of them ignores the
-// other; both are guaranteed non-nil by the Manager in production (main.go
-// substitutes an empty TranscriptSummary when none is parsed), so collectors
-// only nil-check when they are also exercised directly in unit tests.
+// Collect receives the per-process Env, which bundles the already-parsed stdin
+// payload (env.Input) and transcript summary (env.Summary) along with the
+// resolved OS / terminal / provider context. Both are guaranteed non-nil by
+// the Manager in production (main.go substitutes an empty TranscriptSummary
+// when none is parsed), so collectors only nil-check when they are also
+// exercised directly in unit tests.
 type ContentCollector interface {
 	Type() ContentType
-	Collect(input *StatusLineInput, summary *TranscriptSummary) (string, error)
+	Collect(env *Env) (string, error)
 	CacheTTL() time.Duration
 	Timeout() time.Duration // Collector-specific timeout (0 = use manager default)
 	Optional() bool         // Returns true if content is optional (can be empty)
@@ -62,7 +63,12 @@ type cachedContent struct {
 	expiresAt time.Time
 }
 
-// isExpired checks if cached content has expired
+// isExpired checks if cached content has expired.
+//
+// time.Now (not env.Now) is correct here: this is in-process cache mechanics
+// (has the TTL elapsed?), not a display cell. The expiry check needs real
+// wall-clock so a stale env.Now snapshot (captured once at BuildEnv) can't
+// trick the cache into serving expired data. See manager.go Get for the twin.
 func (c *cachedContent) isExpired() bool {
 	return time.Now().After(c.expiresAt)
 }

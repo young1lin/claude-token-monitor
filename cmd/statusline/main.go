@@ -25,68 +25,6 @@ var (
 	commit  = "unknown"
 )
 
-// currentOS allows tests to override runtime.GOOS for cross-platform coverage.
-var currentOS = runtime.GOOS
-
-// detectWideCharTerminal reports whether the terminal renders East Asian
-// Ambiguous characters (· × → ° … and similar symbols) at width 2.
-//
-// IMPORTANT: go-runewidth computes emoji width (📁🌿…) independently and always
-// returns 2, so this flag ONLY affects ambiguous-width symbols — never emoji.
-// Almost every modern terminal (macOS Terminal.app, iTerm2, VSCode, WARP,
-// Windows Terminal, cmd, PowerShell) renders ambiguous symbols at width 1 by
-// default, so we default to false. If your locale/terminal genuinely renders
-// ambiguous characters wide (some CJK-locale configs), opt in with
-// STATUSLINE_AMBIGUOUS_WIDE=1.
-func detectWideCharTerminal() bool {
-	if os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") == "1" {
-		return true
-	}
-	return false
-}
-
-// detectNarrowBlockTerminal reports whether the current terminal renders Block
-// Elements (█░▓▒) at width 1. go-runewidth reports █ as width 2 independent of
-// EastAsianWidth, so for these terminals we must override to width 1 or the
-// progress bar column alignment drifts (the "|" separators stop lining up).
-//
-// Width-1 terminals:
-//   - macOS Terminal.app (TERM_PROGRAM=Apple_Terminal)
-//   - VSCode integrated terminal (TERM_PROGRAM=vscode), any OS
-//   - WARP (TERM_PROGRAM=WarpTerminal), any OS
-//   - Windows cmd / PowerShell / conhost (no WT_SESSION)
-//
-// Width-2 terminals (no override): iTerm2, Windows Terminal, Ghostty, etc.
-func detectNarrowBlockTerminal() bool {
-	switch os.Getenv("TERM_PROGRAM") {
-	case "Apple_Terminal", "vscode", "WarpTerminal":
-		return true
-	}
-	// Windows classic console (cmd, PowerShell, conhost) renders blocks at width 1.
-	if currentOS == "windows" && os.Getenv("WT_SESSION") == "" {
-		return true
-	}
-	return false
-}
-
-func init() {
-	// Configure the Condition that go-runewidth's RuneWidth actually consults.
-	// Setting the package-level runewidth.EastAsianWidth variable is a NO-OP in
-	// current go-runewidth — RuneWidth delegates to DefaultCondition. We must set
-	// the field directly and rebuild its lookup table for the change to take.
-	//
-	// Note: emoji (📁🌿…) width is computed independently and is always 2,
-	// regardless of this flag. This flag ONLY governs East Asian Ambiguous
-	// symbols (· × → ° …), which almost all terminals render at width 1.
-	runewidth.DefaultCondition.EastAsianWidth = detectWideCharTerminal()
-	runewidth.DefaultCondition.CreateLUT()
-
-	// Block Elements (█░▓▒) are reported as width 2 by go-runewidth regardless of
-	// EastAsianWidth, but some terminals render them at width 1. Force width 1 for
-	// those terminals or multi-line "|" column alignment drifts.
-	layout.UseNarrowBlockWidth = detectNarrowBlockTerminal()
-}
-
 func main() {
 	run(os.Stdin, os.Stdout, os.Stderr, os.Args)
 }
@@ -147,8 +85,10 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 			debugJSON := string(inputBytes)
 			if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
 				// On Windows, JSON escapes backslashes so C:\Users\xxx becomes C:\\Users\\xxx
-				// On Unix, no escaping needed for forward slashes
-				if currentOS == "windows" {
+				// On Unix, no escaping needed for forward slashes.
+				// Main-package glue — debug write happens before Env is built, so
+				// read runtime.GOOS directly.
+				if runtime.GOOS == "windows" {
 					escapedHomeDir := strings.ReplaceAll(homeDir, "\\", "\\\\")
 					debugJSON = strings.ReplaceAll(debugJSON, escapedHomeDir, "~")
 				} else {
@@ -230,10 +170,27 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	content.SetUsageCacheTTL(cfg.GetUsageCacheTTL())
 	content.SetIdleWarnThreshold(cfg.GetIdleWarnThreshold())
 
+	// Build the per-process Env once: this reads OS / terminal / provider /
+	// clock / config-dir exactly once and bundles them with the parsed stdin
+	// payload and transcript summary, so every collector receives the same
+	// pre-resolved context instead of touching globals or env vars directly.
+	env := content.BuildEnv(&input, summary)
+
+	// Configure go-runewidth's Condition from the per-process Env so the
+	// renderer aligns ambiguous-width symbols (· × → …) with the terminal's
+	// actual rendering. Setting the package-level runewidth.EastAsianWidth is a
+	// NO-OP in current go-runewidth — RuneWidth delegates to DefaultCondition,
+	// so we set the field directly and rebuild its LUT. Must run after BuildEnv
+	// (which resolves env.Terminal.AmbigWide once from STATUSLINE_AMBIGUOUS_WIDE)
+	// and before any renderer/layout call that consults RuneWidth. Emoji
+	// (📁🌿…) width is computed independently and is always 2 regardless.
+	runewidth.DefaultCondition.EastAsianWidth = env.Terminal.AmbigWide
+	runewidth.DefaultCondition.CreateLUT()
+
 	// Build content map using composers. Each collector emits display-ready
 	// content (glyphs/prefixes included), so the entrypoint no longer post-
 	// processes individual cells here — it just hands the map to the layout.
-	contentMap := contentMgr.Compose(&input, summary)
+	contentMap := contentMgr.Compose(env)
 
 	// === Layer 2: Layout ===
 	defaultLayout := layout.DefaultLayout()
@@ -241,7 +198,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) {
 	grid := layout.NewGrid(gridLayout, contentMap)
 
 	// === Layer 3: Render ===
-	tableRenderer := render.NewTableRenderer(grid)
+	tableRenderer := render.NewTableRenderer(grid, env.Terminal.NarrowBlock)
 
 	// Check if single-line mode is enabled
 	// Environment variable takes precedence over config file

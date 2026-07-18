@@ -14,7 +14,38 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
+
+// Test-only injection points mirroring the pre-refactor seams. Production
+// resolves the Claude config dir once in BuildEnv (env.go) and threads
+// env.ClaudeDir through the collectors; unit tests bypass BuildEnv and need
+// their own way to point the threaded helpers at a temp dir. The values
+// flow into resolveTestClaudeDir() which tests pass into the helpers.
+var (
+	overrideHomeDir string                // Override os.UserHomeDir() in tests
+	getHomeDirFn    = getEffectiveHomeDir // Override in tests for error injection
+)
+
+// getEffectiveHomeDir returns the home directory, honoring the test-only
+// overrideHomeDir. Production never calls this — it lives only to support
+// tests that pre-date the env.ClaudeDir refactor.
+func getEffectiveHomeDir() (string, error) {
+	if overrideHomeDir != "" {
+		return overrideHomeDir, nil
+	}
+	return os.UserHomeDir()
+}
+
+// resolveTestClaudeDir mirrors what BuildEnv does — resolves the active
+// Claude config dir from $CLAUDE_CONFIG_DIR (when set) or <home>/.claude.
+// Tests pass this value into helpers that production threads from
+// env.ClaudeDir.
+func resolveTestClaudeDir() string {
+	dir, _ := claudedir.Resolve(getHomeDirFn)
+	return dir
+}
 
 // setupTempHomeDir sets a temp home dir, restores the old value on test cleanup.
 func setupTempHomeDir(t *testing.T) string {
@@ -162,7 +193,7 @@ func TestShouldRefreshResult_HonorsConfiguredTTL(t *testing.T) {
 
 	// Act: bump TTL to 5 minutes — the 120s-old cache should now look fresh
 	SetUsageCacheTTL(5 * time.Minute)
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh, "configured 5m TTL should keep 90s-old cache fresh")
@@ -318,7 +349,12 @@ func TestGetCachePath(t *testing.T) {
 // getClaudeConfigDir – multi-account support via $CLAUDE_CONFIG_DIR
 // ---------------------------------------------------------------------------
 
-func TestGetClaudeConfigDir(t *testing.T) {
+// TestResolveTestClaudeDir pins the test-helper's multi-account behavior
+// (env var wins over home, empty env falls back to <home>/.claude). The
+// underlying resolution lives in the claudedir package; this guards the
+// thin wrapper so tests that rely on setupTempHomeDir + t.Setenv keep
+// hitting the dir they expect.
+func TestResolveTestClaudeDir(t *testing.T) {
 	// Snapshot + restore overrideHomeDir so we don't leak between subtests.
 	oldHome := overrideHomeDir
 	t.Cleanup(func() { overrideHomeDir = oldHome })
@@ -327,8 +363,7 @@ func TestGetClaudeConfigDir(t *testing.T) {
 		overrideHomeDir = filepath.FromSlash("/tmp/should-not-be-used")
 		t.Setenv("CLAUDE_CONFIG_DIR", filepath.FromSlash("/tmp/account-ME"))
 
-		got, err := getClaudeConfigDir()
-		require.NoError(t, err)
+		got := resolveTestClaudeDir()
 		assert.Equal(t, filepath.FromSlash("/tmp/account-ME"), got,
 			"CLAUDE_CONFIG_DIR must override the home-derived path")
 	})
@@ -337,8 +372,7 @@ func TestGetClaudeConfigDir(t *testing.T) {
 		overrideHomeDir = filepath.FromSlash("/tmp/home")
 		t.Setenv("CLAUDE_CONFIG_DIR", "")
 
-		got, err := getClaudeConfigDir()
-		require.NoError(t, err)
+		got := resolveTestClaudeDir()
 		assert.Equal(t, filepath.Join(filepath.FromSlash("/tmp/home"), ".claude"), got)
 	})
 }
@@ -369,7 +403,7 @@ func TestReadUsageCache_HonorsClaudeConfigDir(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(customDir, usageCacheFile), rightData, 0644))
 
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, float64(7), got.FiveHour, "must read from $CLAUDE_CONFIG_DIR, not <home>/.claude")
 	assert.Equal(t, float64(32), got.SevenDay)
@@ -384,7 +418,7 @@ func TestReadUsageCache_FileNotExists(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	cache := readUsageCache("anthropic", "")
+	cache := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.Nil(t, cache)
@@ -398,7 +432,7 @@ func TestReadUsageCache_CorruptedJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, usageCacheFile), []byte("not-json{{{"), 0644))
 
 	// Act
-	cache := readUsageCache("anthropic", "")
+	cache := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.Nil(t, cache)
@@ -416,7 +450,7 @@ func TestReadUsageCache_ValidFile(t *testing.T) {
 	writeTestCacheFile(t, homeDir, original)
 
 	// Act
-	cache := readUsageCache("anthropic", "")
+	cache := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	require.NotNil(t, cache)
@@ -444,9 +478,9 @@ func TestWriteAndReadUsageCache(t *testing.T) {
 	}
 
 	// Act
-	err := writeUsageCache(original)
+	err := writeUsageCache(resolveTestClaudeDir(), original)
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	require.NotNil(t, got)
@@ -467,7 +501,7 @@ func TestShouldRefreshResult_NoCache(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.True(t, shouldRefresh)
@@ -485,7 +519,7 @@ func TestShouldRefreshResult_FreshSuccessCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh)
@@ -503,7 +537,7 @@ func TestShouldRefreshResult_FreshFailureCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.False(t, shouldRefresh)
@@ -521,7 +555,7 @@ func TestShouldRefreshResult_ExpiredCache(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, _, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: should trigger refresh
 	assert.True(t, shouldRefresh)
@@ -542,7 +576,7 @@ func TestShouldRefreshResult_RateLimitBackoff_WithLastGoodData(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: serve last good data during backoff
 	assert.False(t, shouldRefresh)
@@ -563,7 +597,7 @@ func TestShouldRefreshResult_RateLimitBackoff_NoLastGoodData(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: serve cache itself (no last good data available)
 	assert.False(t, shouldRefresh)
@@ -583,7 +617,7 @@ func TestShouldRefreshResult_RateLimitExpired(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, _, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: backoff expired, trigger refresh
 	assert.True(t, shouldRefresh)
@@ -604,11 +638,11 @@ func TestWriteRefreshedCache_ValidData(t *testing.T) {
 	}
 
 	// Act
-	err := writeRefreshedCache(usage, oldCache)
+	err := writeRefreshedCache(resolveTestClaudeDir(), usage, oldCache)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, 0, got.RateLimitedCount, "rate limit count should reset to 0 on success")
 	assert.Empty(t, got.APIError)
@@ -626,11 +660,11 @@ func TestWriteRefreshedCache_ZeroData_PreservesOldLastGoodData(t *testing.T) {
 	}
 
 	// Act
-	err := writeRefreshedCache(usage, old)
+	err := writeRefreshedCache(resolveTestClaudeDir(), usage, old)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	require.NotNil(t, got.LastGoodData, "LastGoodData from old cache should be preserved")
 	assert.InDelta(t, 88.0, got.LastGoodData.FiveHour, 0.001)
@@ -642,11 +676,11 @@ func TestWriteRefreshedCache_NilOldCache(t *testing.T) {
 	usage := &UsageData{FiveHour: 12.0}
 
 	// Act — should not panic
-	err := writeRefreshedCache(usage, nil)
+	err := writeRefreshedCache(resolveTestClaudeDir(), usage, nil)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 12.0, got.FiveHour, 0.001)
 }
@@ -662,11 +696,11 @@ func TestWriteRefreshFailedCache_RateLimit_ExplicitRetryAfter(t *testing.T) {
 	before := time.Now()
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, true, 90, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), oldCache, true, 90, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 1, got.RateLimitedCount)
@@ -683,11 +717,11 @@ func TestWriteRefreshFailedCache_RateLimit_Backoff(t *testing.T) {
 	before := time.Now()
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, true, 0, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), oldCache, true, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 2, got.RateLimitedCount)
@@ -702,11 +736,11 @@ func TestWriteRefreshFailedCache_NetworkError(t *testing.T) {
 	oldCache := &usageCacheData{FiveHour: 50.0, RateLimitedCount: 3}
 
 	// Act
-	err := writeRefreshFailedCache(oldCache, false, 0, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), oldCache, false, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.True(t, got.APIUnavailable)
 	assert.Equal(t, "network", got.APIError)
@@ -718,11 +752,11 @@ func TestWriteRefreshFailedCache_NilOldCache_RateLimit(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act — should not panic
-	err := writeRefreshFailedCache(nil, true, 0, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), nil, true, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 1, got.RateLimitedCount)
@@ -735,11 +769,11 @@ func TestWriteRefreshFailedCache_NilOldCache_RateLimit_ExplicitRetryAfter(t *tes
 	before := time.Now()
 
 	// Act
-	err := writeRefreshFailedCache(nil, true, 90, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), nil, true, 90, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.Equal(t, "rate-limited", got.APIError)
 	assert.Equal(t, 1, got.RateLimitedCount)
@@ -754,11 +788,11 @@ func TestWriteRefreshFailedCache_NilOldCache_Network(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act — should not panic
-	err := writeRefreshFailedCache(nil, false, 0, "", "")
+	err := writeRefreshFailedCache(resolveTestClaudeDir(), nil, false, 0, "", "")
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.True(t, got.APIUnavailable)
 	assert.Equal(t, "network", got.APIError)
@@ -886,8 +920,8 @@ func TestCurrentTimeCollector_Collect(t *testing.T) {
 	// Arrange
 	c := NewCurrentTimeCollector()
 
-	// Act
-	result, err := c.Collect(nil, nil)
+	// Act — env.Now is the snapshot BuildEnv would capture in production.
+	result, err := c.Collect(&Env{Now: time.Now()})
 
 	// Assert
 	require.NoError(t, err)
@@ -984,7 +1018,7 @@ func TestGetSubscriptionUsage_CustomApiEndpoint(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Nil(t, result)
@@ -1004,7 +1038,7 @@ func TestGetSubscriptionUsage_FreshCache_NoCreds(t *testing.T) {
 	// No credentials file written intentionally – cache hit must not read creds
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: served from cache
 	require.NotNil(t, result)
@@ -1018,7 +1052,7 @@ func TestGetSubscriptionUsage_NoCredentialsFile(t *testing.T) {
 	setupTempHomeDir(t)
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Nil(t, result)
@@ -1034,7 +1068,7 @@ func TestGetSubscriptionUsage_InvalidCredentialsJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte("not-json{{"), 0644))
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Nil(t, result)
@@ -1048,7 +1082,7 @@ func TestGetSubscriptionUsage_NoAccessToken(t *testing.T) {
 	writeTestCredentials(t, homeDir, "", "claude-pro", 0)
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Nil(t, result)
@@ -1063,7 +1097,7 @@ func TestGetSubscriptionUsage_ExpiredToken(t *testing.T) {
 	writeTestCredentials(t, homeDir, "stale-token", "claude-pro", expiredAt)
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Nil(t, result)
@@ -1078,7 +1112,7 @@ func TestGetSubscriptionUsage_APIUser_NoSubscription(t *testing.T) {
 	writeTestCredentials(t, homeDir, "api-token", "", farFuture)
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: API user → nil (no quota display)
 	assert.Nil(t, result)
@@ -1103,7 +1137,7 @@ func TestGetSubscriptionUsage_Success(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	require.NotNil(t, result)
@@ -1111,7 +1145,7 @@ func TestGetSubscriptionUsage_Success(t *testing.T) {
 	assert.InDelta(t, 45.0, result.SevenDay, 0.001)
 
 	// Cache should have been written
-	cached := readUsageCache("anthropic", "")
+	cached := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, cached)
 	assert.InDelta(t, 72.0, cached.FiveHour, 0.001)
 }
@@ -1130,13 +1164,13 @@ func TestGetSubscriptionUsage_APIRateLimit_WritesFailureCache(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: no previous data → nil
 	assert.Nil(t, result)
 
 	// Failure cache must have been written
-	cached := readUsageCache("anthropic", "")
+	cached := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, cached)
 	assert.Equal(t, "rate-limited", cached.APIError)
 	assert.Equal(t, 1, cached.RateLimitedCount)
@@ -1152,7 +1186,7 @@ func TestGetSubscriptionQuota_NilUsage(t *testing.T) {
 	input := &StatusLineInput{}
 
 	// Act
-	result := getSubscriptionQuota(input)
+	result := getSubscriptionQuota(input, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Empty(t, result)
@@ -1165,7 +1199,7 @@ func TestGetSubscriptionQuota_BothZero(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: shows full info even at 0% usage (no reset times → edge case format).
 	// 0% sits in the lowest tier so both percentages are wrapped in bright green.
@@ -1183,7 +1217,7 @@ func TestGetSubscriptionQuota_FiveHourWithResetTime(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, now, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: 5h carries an inline countdown; 7d has no reset.
 	// 65% → yellow (heads-up); 0% → bright green (plenty of headroom).
@@ -1197,7 +1231,7 @@ func TestGetSubscriptionQuota_FiveHourNoResetTime(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: always shows both 5h and 7d, no reset time when not provided.
 	// 80% lands exactly on the red tier boundary.
@@ -1215,7 +1249,7 @@ func TestGetSubscriptionQuota_SevenDayFallback(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, now, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: only 7d carries an inline countdown.
 	// 42% → cyan (past halfway); 0% → bright green.
@@ -1236,7 +1270,7 @@ func TestGetSubscriptionQuota_BothLimits_WithResetTime(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, now, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: 5h carries inline countdown; 7d has no reset → no trailing countdown.
 	// 67% → yellow tier; 45% → cyan tier.
@@ -1250,7 +1284,7 @@ func TestGetSubscriptionQuota_BothLimits_NoResetTime(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Contains(t, result, "50%")
@@ -1267,7 +1301,7 @@ func TestGetSubscriptionQuota_FormatsPercentageWithoutDecimal(t *testing.T) {
 	})
 
 	// Act
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert: rounded to integer
 	assert.Contains(t, result, "34%")
@@ -1282,7 +1316,7 @@ func TestGetSubscriptionQuota_ValidInputType(t *testing.T) {
 	c := NewQuotaCollector()
 
 	// Act
-	result, err := c.Collect(&StatusLineInput{}, nil)
+	result, err := c.Collect(&Env{Input: &StatusLineInput{}})
 
 	// Assert
 	require.NoError(t, err)
@@ -1304,7 +1338,7 @@ func TestShouldRefreshResult_RefreshingInProgress(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: should NOT refresh, use expired cache
 	assert.False(t, shouldRefresh)
@@ -1324,7 +1358,7 @@ func TestShouldRefreshResult_RefreshingCrashed(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, _, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, _, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: refreshing crashed → reset and trigger refresh
 	assert.False(t, isBackoff)
@@ -1412,7 +1446,7 @@ func TestShouldRefreshResult_RefreshMarkingWriteFail(t *testing.T) {
 		_ = os.WriteFile(cachePath, d, 0644)
 	}()
 
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: coordination detected (another process marked refresh earlier)
 	// OR shouldRefresh=true if our write won the race (both are valid outcomes)
@@ -1441,7 +1475,7 @@ func TestShouldRefreshResult_RateLimitedWithRefreshingInProgress(t *testing.T) {
 	writeTestCacheFile(t, homeDir, c)
 
 	// Act
-	shouldRefresh, cache, isBackoff := shouldRefreshResult("anthropic", "")
+	shouldRefresh, cache, isBackoff := shouldRefreshResult(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert: refreshing in progress with rate-limit + last good data → serve last good
 	// isBackoff is false because RetryAfterUntil was zero (backoff not active)
@@ -1465,13 +1499,13 @@ func TestWriteUsageCache_DirNotExists(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 42.0, FetchedAt: time.Now()}
 
 	// Act - should create the directory
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert
 	require.NoError(t, err)
 
 	// Verify file was written
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 42.0, got.FiveHour, 0.001)
 }
@@ -1487,7 +1521,7 @@ func TestWriteUsageCache_MarshalError(t *testing.T) {
 
 	// Write normal cache to verify the path works
 	cache := &usageCacheData{FiveHour: 1.0, FetchedAt: time.Now()}
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 	require.NoError(t, err)
 }
 
@@ -1510,13 +1544,13 @@ func TestWriteUsageCache_TargetIsDirectory(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 99.0, FetchedAt: time.Now()}
 
 	// Act - should fail on Unix, may succeed on Windows
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert: behavior differs by platform
 	if runtime.GOOS == "windows" {
 		// Windows: os.Remove removes the empty directory, rename succeeds
 		if err == nil {
-			got := readUsageCache("anthropic", "")
+			got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 			if got != nil {
 				assert.InDelta(t, 99.0, got.FiveHour, 0.001)
 			}
@@ -1535,10 +1569,10 @@ func TestWriteUsageCache_RenameFailsCleansTemp(t *testing.T) {
 	defer func() { overrideHomeDir = old }()
 
 	cache := &usageCacheData{FiveHour: 77.0, FetchedAt: time.Now()}
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 	require.NoError(t, err)
 
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 77.0, got.FiveHour, 0.001)
 }
@@ -1621,7 +1655,7 @@ func TestGetSubscriptionQuota_SevenDayOnlyNoReset(t *testing.T) {
 		return &UsageData{FiveHour: 0, SevenDay: 42.0, SevenDayResetAt: time.Time{}}
 	})
 
-	result := getSubscriptionQuota(&StatusLineInput{})
+	result := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.Contains(t, result, "42%")
 	assert.Contains(t, result, "7d")
@@ -1644,7 +1678,7 @@ func TestGetSubscriptionUsage_NilClaudeAiOauth(t *testing.T) {
 	creds := `{"claudeAiOauth": null}`
 	require.NoError(t, os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte(creds), 0644))
 
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 	assert.Nil(t, result)
 }
 
@@ -1676,14 +1710,14 @@ func TestGetSubscriptionUsage_SuccessWithOldData(t *testing.T) {
 		}`))
 	})
 
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	require.NotNil(t, result)
 	assert.InDelta(t, 72.0, result.FiveHour, 0.001)
 	assert.InDelta(t, 45.0, result.SevenDay, 0.001)
 
 	// Verify rate-limit count was reset
-	cached := readUsageCache("anthropic", "")
+	cached := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, cached)
 	assert.Equal(t, 0, cached.RateLimitedCount, "rate limit count should reset on success")
 	assert.Empty(t, cached.APIError)
@@ -1705,7 +1739,7 @@ func TestGetSubscriptionUsage_BackoffServesLastGoodData(t *testing.T) {
 	}
 	writeTestCacheFile(t, homeDir, c)
 
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	require.NotNil(t, result, "backoff should serve last good data")
 	assert.InDelta(t, 60.0, result.FiveHour, 0.001)
@@ -1734,7 +1768,7 @@ func TestGetSubscriptionUsage_APIServerDown_WritesFailureCache(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	result := getSubscriptionUsage(nil)
+	result := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	// Should return old data from fallback
 	require.NotNil(t, result)
@@ -1829,11 +1863,11 @@ func TestWriteUsageCache_ClaudeDirNotExists(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 55.0, FetchedAt: time.Now()}
 
 	// Act
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert: MkdirAll creates .claude/ and write succeeds
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 55.0, got.FiveHour, 0.001)
 }
@@ -1854,18 +1888,18 @@ func TestWriteUsageCache_WindowsBranch(t *testing.T) {
 	old := overrideHomeDir
 	overrideHomeDir = homeDir
 	defer func() { overrideHomeDir = old }()
-	oldOS := currentOS
-	currentOS = "windows"
-	defer func() { currentOS = oldOS }()
+	oldGoos := goosFn
+	goosFn = func() string { return "windows" }
+	defer func() { goosFn = oldGoos }()
 
 	cache := &usageCacheData{FiveHour: 33.0, FetchedAt: time.Now()}
 
 	// Act — should use the Windows code path (remove then rename)
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 33.0, got.FiveHour, 0.001)
 }
@@ -1890,11 +1924,11 @@ func TestSyncFile_OpenError(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 1.0, FetchedAt: time.Now()}
 
 	// Act — syncFileFn error is best-effort, ignored
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert: writeUsageCache ignores syncFileFn error
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 }
 
@@ -1910,7 +1944,7 @@ func TestReadUsageCache_CorruptJSON(t *testing.T) {
 	require.NoError(t, os.WriteFile(cachePath, []byte("{corrupt!!!"), 0644))
 
 	// Act
-	result := readUsageCache("anthropic", "")
+	result := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.Nil(t, result, "corrupt JSON should return nil")
@@ -1922,18 +1956,18 @@ func TestWriteUsageCache_NonWindowsBranch(t *testing.T) {
 	old := overrideHomeDir
 	overrideHomeDir = homeDir
 	defer func() { overrideHomeDir = old }()
-	oldOS := currentOS
-	currentOS = "linux"
-	defer func() { currentOS = oldOS }()
+	oldGoos := goosFn
+	goosFn = func() string { return "linux" }
+	defer func() { goosFn = oldGoos }()
 
 	cache := &usageCacheData{FiveHour: 77.0, FetchedAt: time.Now()}
 
 	// Act
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 77.0, got.FiveHour, 0.001)
 }
@@ -2092,14 +2126,16 @@ func TestReadUsageCache_HomeDirErrorViaFn(t *testing.T) {
 	defer func() { getHomeDirFn = oldFn }()
 
 	// Act
-	result := readUsageCache("anthropic", "")
+	result := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 
 	// Assert
 	assert.Nil(t, result, "should return nil when home dir unavailable")
 }
 
 func TestWriteUsageCache_HomeDirErrorViaFn(t *testing.T) {
-	// Arrange
+	// Arrange — getHomeDirFn returning an error makes resolveTestClaudeDir()
+	// yield "" (mirroring BuildEnv's behavior on resolution failure), which
+	// writeUsageCache rejects with errNoClaudeDir.
 	oldFn := getHomeDirFn
 	getHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home") }
 	defer func() { getHomeDirFn = oldFn }()
@@ -2107,16 +2143,16 @@ func TestWriteUsageCache_HomeDirErrorViaFn(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 10.0, FetchedAt: time.Now()}
 
 	// Act
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "no home")
+	assert.Contains(t, err.Error(), "empty Claude config dir")
 }
 
 func TestGetSubscriptionQuota_NilFnFallsThrough(t *testing.T) {
 	// Arrange — getSubscriptionUsageFn = nil forces real getSubscriptionUsage() path.
-	// Clear env vars so detectProvider() returns providerAnthropic (not GLM),
+	// Clear env vars so detectProviderInfo() returns providerAnthropic (not GLM),
 	// then getHomeDirFn returning error makes the Anthropic path fail early.
 	t.Setenv("ANTHROPIC_BASE_URL", "")
 	t.Setenv("ANTHROPIC_API_BASE_URL", "")
@@ -2131,7 +2167,7 @@ func TestGetSubscriptionQuota_NilFnFallsThrough(t *testing.T) {
 	defer func() { getHomeDirFn = oldHomeFn }()
 
 	// Act
-	result := getSubscriptionQuota(nil)
+	result := getSubscriptionQuota(nil, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Assert
 	assert.Empty(t, result, "should return empty when usage unavailable")
@@ -2151,11 +2187,11 @@ func TestSyncFile_NilFn(t *testing.T) {
 	cache := &usageCacheData{FiveHour: 2.0, FetchedAt: time.Now()}
 
 	// Act
-	err := writeUsageCache(cache)
+	err := writeUsageCache(resolveTestClaudeDir(), cache)
 
 	// Assert
 	require.NoError(t, err)
-	got := readUsageCache("anthropic", "")
+	got := readUsageCache(resolveTestClaudeDir(), "anthropic", "")
 	require.NotNil(t, got)
 	assert.InDelta(t, 2.0, got.FiveHour, 0.001)
 }

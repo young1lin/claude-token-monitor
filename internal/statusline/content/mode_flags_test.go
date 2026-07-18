@@ -156,7 +156,7 @@ func TestModeFlagsCollector_Collect_FromRealCCPayload(t *testing.T) {
 	// If CC ever renames the JSON keys, this test catches it.
 	input := loadRealCCInput(t)
 
-	got, err := NewModeFlagsCollector().Collect(input, nil)
+	got, err := NewModeFlagsCollector().Collect(&Env{Input: input})
 	require.NoError(t, err)
 	assert.Equal(t, "💭 xhigh", stripANSI(got))
 }
@@ -164,7 +164,7 @@ func TestModeFlagsCollector_Collect_FromRealCCPayload(t *testing.T) {
 func TestModeFlagsCollector_Collect_NilInput(t *testing.T) {
 	// A nil payload yields an empty (hidden) chip rather than an error, since
 	// mode-flags is optional and the layout drops empty cells.
-	got, err := NewModeFlagsCollector().Collect(nil, nil)
+	got, err := NewModeFlagsCollector().Collect(&Env{})
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }

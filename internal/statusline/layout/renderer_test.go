@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsBlockElement(t *testing.T) {
@@ -31,27 +32,29 @@ func TestIsBlockElement(t *testing.T) {
 	}
 }
 
-func TestDisplayWidth_BlockElements(t *testing.T) {
-	// Save original state
-	original := UseNarrowBlockWidth
-	defer func() { UseNarrowBlockWidth = original }()
+// newWidthRenderer builds a minimal Renderer solely so tests can call the
+// displayWidth method. The grid is unused by displayWidth; only narrow matters.
+func newWidthRenderer(narrow bool) *Renderer {
+	return NewRenderer(nil, narrow)
+}
 
+func TestDisplayWidth_BlockElements(t *testing.T) {
 	progressBar := "[██░░░░░░░░]"
 
-	t.Run("default mode (UseNarrowBlockWidth=false)", func(t *testing.T) {
-		UseNarrowBlockWidth = false
+	t.Run("default mode (narrow=false)", func(t *testing.T) {
+		r := newWidthRenderer(false)
 		// go-runewidth: █=2, ░=1, so 3*2 + 7*1 + 2 = 15
-		got := displayWidth(progressBar)
+		got := r.displayWidth(progressBar)
 		// Note: exact value depends on go-runewidth, just verify it's calculated
 		if got <= 0 {
 			t.Errorf("displayWidth should be positive, got %d", got)
 		}
 	})
 
-	t.Run("narrow mode (UseNarrowBlockWidth=true)", func(t *testing.T) {
-		UseNarrowBlockWidth = true
+	t.Run("narrow mode (narrow=true)", func(t *testing.T) {
+		r := newWidthRenderer(true)
 		// All Block Elements = 1: 3*1 + 7*1 + 2 = 12
-		got := displayWidth(progressBar)
+		got := r.displayWidth(progressBar)
 		want := 12
 		if got != want {
 			t.Errorf("displayWidth(%q): got %d, want %d", progressBar, got, want)
@@ -59,21 +62,32 @@ func TestDisplayWidth_BlockElements(t *testing.T) {
 	})
 
 	t.Run("mixed content with narrow mode", func(t *testing.T) {
-		UseNarrowBlockWidth = true
+		r := newWidthRenderer(true)
 		// "Prefix [███░░░░░░░] Suffix" = 7 + 12 + 7 = 26
 		s := "Prefix [███░░░░░░░] Suffix"
-		got := displayWidth(s)
+		got := r.displayWidth(s)
 		want := 26
 		if got != want {
 			t.Errorf("displayWidth(%q): got %d, want %d", s, got, want)
 		}
 	})
+
+	t.Run("two renderers with different narrow flags disagree", func(t *testing.T) {
+		// Pin the behavioural contract: the narrow flag is per-instance, so a
+		// narrow and a wide renderer looking at the same string return different
+		// widths. This is the regression guard for the global→field migration.
+		wide := newWidthRenderer(false).displayWidth(progressBar)
+		narrow := newWidthRenderer(true).displayWidth(progressBar)
+		assert.Greater(t, wide, narrow,
+			"narrow renderer must report a smaller width than wide for Block Elements")
+	})
 }
 
 func TestDisplayWidth_ANSIStrip(t *testing.T) {
 	// ANSI codes should be stripped before calculating width
+	r := newWidthRenderer(false)
 	colored := "\x1b[31mRed Text\x1b[0m"
-	got := displayWidth(colored)
+	got := r.displayWidth(colored)
 	want := 8 // "Red Text"
 	if got != want {
 		t.Errorf("displayWidth with ANSI: got %d, want %d", got, want)
@@ -81,8 +95,8 @@ func TestDisplayWidth_ANSIStrip(t *testing.T) {
 }
 
 func TestDisplayWidth_EmptyString(t *testing.T) {
-	UseNarrowBlockWidth = true
-	got := displayWidth("")
+	r := newWidthRenderer(true)
+	got := r.displayWidth("")
 	if got != 0 {
 		t.Errorf("displayWidth(\"\"): got %d, want 0", got)
 	}
@@ -97,7 +111,7 @@ func TestRenderer_NoAlignMixedRows(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 3 {
@@ -120,7 +134,7 @@ func TestRenderer_SkipEmptyRows(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 2 {
@@ -136,7 +150,7 @@ func TestRenderer_AllNoAlign(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 2 {
@@ -153,7 +167,7 @@ func TestRenderer_AllNoAlign(t *testing.T) {
 
 func TestRenderer_EmptyGrid(t *testing.T) {
 	grid := &Grid{Rows: []GridRow{}}
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	// Render returns empty slice (nil) when grid has no content
@@ -169,7 +183,7 @@ func TestRenderRowWithAlignment_EmptyCells(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 1 {
@@ -196,7 +210,7 @@ func TestRenderRowWithAlignment_SingleCell(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 1 {
@@ -217,7 +231,7 @@ func TestCompactRowsWithMeta_NoAlignPreserved(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	metas := renderer.compactRowsWithMeta()
 
 	if len(metas) != 2 {
@@ -242,7 +256,7 @@ func TestRenderRowWithAlignment_CellWiderThanColWidth(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 2 {
@@ -263,7 +277,7 @@ func TestRenderRowWithAlignment_AllEmptyCells(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 0 {
@@ -273,7 +287,7 @@ func TestRenderRowWithAlignment_AllEmptyCells(t *testing.T) {
 
 func TestRenderer_RenderRowWithAlignment_EmptyRow(t *testing.T) {
 	// Test renderRowWithAlignment with empty row slice
-	r := NewRenderer(&Grid{Rows: []GridRow{{Cells: []string{"a"}}}})
+	r := NewRenderer(&Grid{Rows: []GridRow{{Cells: []string{"a"}}}}, false)
 	got := r.renderRowWithAlignment([]string{}, []int{10})
 	if got != "" {
 		t.Errorf("renderRowWithAlignment(empty row) = %q, want %q", got, "")
@@ -291,7 +305,7 @@ func TestRenderer_NegativePaddingClamp(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 2 {
@@ -315,7 +329,7 @@ func TestRenderer_SkipsPostCompactEmptyCellRow(t *testing.T) {
 		},
 	}
 
-	renderer := NewRenderer(grid)
+	renderer := NewRenderer(grid, false)
 	lines := renderer.Render()
 
 	if len(lines) != 2 {
@@ -371,7 +385,7 @@ func TestCompactRows(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRenderer(tt.grid)
+			r := NewRenderer(tt.grid, false)
 			got := r.compactRows()
 			if len(got) != len(tt.want) {
 				t.Fatalf("compactRows() length = %d, want %d", len(got), len(tt.want))
@@ -389,4 +403,36 @@ func TestCompactRows(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRenderer_NarrowFlagThreadsToDisplayWidth pins the end-to-end behavioural
+// contract that the narrow flag passed to NewRenderer is what displayWidth and
+// the alignment pipeline actually consult. With a Block-Element bar defining
+// column 0's width, a short ASCII cell in another row must be padded to a
+// different position under narrow vs. wide — proving the flag reaches the
+// width calculation (not just the method signature).
+func TestRenderer_NarrowFlagThreadsToDisplayWidth(t *testing.T) {
+	bar := "[████░░░░░░]" // 4×█ + 6×░ + 2 brackets. narrow: 12, wide: 16 (█=2)
+
+	grid := &Grid{
+		Rows: []GridRow{
+			{Cells: []string{bar, "tail"}, NoAlign: false},
+			{Cells: []string{"x", "y"}, NoAlign: false}, // ASCII → padding is visible
+		},
+	}
+
+	narrowLines := NewRenderer(grid, true).Render()
+	wideLines := NewRenderer(grid, false).Render()
+
+	// Row 1 ("x" padded to col-0 width then " | y") is where the narrow flag
+	// shows up: colWidths[0] = displayWidth(bar) = 12 (narrow) or 16 (wide).
+	sepNarrow := strings.Index(narrowLines[1], " | ")
+	sepWide := strings.Index(wideLines[1], " | ")
+
+	require.GreaterOrEqual(t, sepNarrow, 0)
+	require.GreaterOrEqual(t, sepWide, 0)
+	// Under wide, each of the 4 █ counts as 2 instead of 1, so the "x" cell is
+	// padded 4 spaces longer and the separator lands 4 bytes further right.
+	assert.Equal(t, 4, sepWide-sepNarrow,
+		"narrow flag must shift the separator by the Block-Element width delta")
 }

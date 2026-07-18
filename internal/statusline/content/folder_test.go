@@ -199,7 +199,7 @@ func TestFolderCollector_Collect(t *testing.T) {
 			collector := NewFolderCollector()
 
 			// Act
-			result, err := collector.Collect(tt.input, nil)
+			result, err := collector.Collect(&Env{Input: tt.input})
 
 			// Assert
 			if err != nil {

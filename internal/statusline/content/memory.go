@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/young1lin/claude-token-monitor/internal/claudedir"
 )
 
 // Memory files cache
@@ -40,15 +38,19 @@ func NewMemoryFilesCollector() *MemoryFilesCollector {
 }
 
 // Collect returns memory files information
-func (c *MemoryFilesCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
-	info := getMemoryFilesInfoCached(statusInput.Cwd)
+func (c *MemoryFilesCollector) Collect(env *Env) (string, error) {
+	statusInput := env.Input
+	info := getMemoryFilesInfoCached(statusInput.Cwd, env.OS.IsWindows, env.Now, env.ClaudeDir)
 	return formatMemoryFilesDisplay(info), nil
 }
 
-// getMemoryFilesInfoCached returns cached memory files info
-func getMemoryFilesInfoCached(cwd string) MemoryFilesInfo {
-	now := time.Now()
-
+// getMemoryFilesInfoCached returns cached memory files info. The caller
+// threads env.Now so the cache TTL check uses the same snapshot the rest of
+// the statusline render sees (pinnable in tests via the nowFn seam BuildEnv
+// reads from). claudeDir is the active Claude config dir resolved once by
+// BuildEnv (honoring $CLAUDE_CONFIG_DIR) — threaded through so this layer
+// never calls claudedir.Resolve itself.
+func getMemoryFilesInfoCached(cwd string, isWindows bool, now time.Time, claudeDir string) MemoryFilesInfo {
 	memoryFilesCacheMu.RLock()
 	if memoryFilesCache != nil && now.Sub(memoryFilesCacheTime) < memoryFilesCacheTTL {
 		cached := *memoryFilesCache
@@ -57,7 +59,7 @@ func getMemoryFilesInfoCached(cwd string) MemoryFilesInfo {
 	}
 	memoryFilesCacheMu.RUnlock()
 
-	info := getMemoryFilesInfo(cwd)
+	info := getMemoryFilesInfo(cwd, isWindows, claudeDir)
 
 	memoryFilesCacheMu.Lock()
 	memoryFilesCache = &info
@@ -75,13 +77,15 @@ func clearMemoryCache() {
 	memoryFilesCacheMu.Unlock()
 }
 
-// getMemoryFilesInfo scans all Claude Code memory file locations
-func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
+// getMemoryFilesInfo scans all Claude Code memory file locations. claudeDir
+// is the active Claude config dir resolved once by BuildEnv (honoring
+// $CLAUDE_CONFIG_DIR) so multi-account setups don't read the wrong tree.
+func getMemoryFilesInfo(cwd string, isWindows bool, claudeDir string) MemoryFilesInfo {
 	info := MemoryFilesInfo{}
 	fs := defaultFileSystem
 
 	// 1. Check Enterprise policy (Windows)
-	if currentOS == "windows" {
+	if isWindows {
 		enterprisePath := filepath.Join("C:", "Program Files", "ClaudeCode", "CLAUDE.md")
 		if _, err := fs.Stat(enterprisePath); err == nil {
 			info.CLAUDEMdCount++
@@ -94,9 +98,8 @@ func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	// 3. Scan .claude/rules/ directories
 	info.RulesCount += countRulesUpward(cwd)
 
-	// 4. Check User memory under the active config dir (honors
-	// $CLAUDE_CONFIG_DIR so multi-account setups don't read the wrong tree).
-	if claudeDir, err := claudedir.Resolve(fs.UserHomeDir); err == nil {
+	// 4. Check User memory under the active config dir.
+	if claudeDir != "" {
 		if _, err := fs.Stat(filepath.Join(claudeDir, "CLAUDE.md")); err == nil {
 			info.CLAUDEMdCount++
 		}
@@ -104,7 +107,7 @@ func getMemoryFilesInfo(cwd string) MemoryFilesInfo {
 	}
 
 	// Get MCP count
-	info.MCPCount = getMCPCount(cwd)
+	info.MCPCount = getMCPCount(cwd, claudeDir)
 
 	return info
 }
@@ -203,8 +206,11 @@ func countRulesRecursive(rulesDir string) int {
 	return count
 }
 
-// getMCPCount reads and parses MCP servers configuration
-func getMCPCount(cwd string) int {
+// getMCPCount reads and parses MCP servers configuration. claudeDir is the
+// active Claude config dir resolved once by BuildEnv (honoring
+// $CLAUDE_CONFIG_DIR) — multi-account users have a settings.json per account
+// and need MCP counts from the one they're actually using.
+func getMCPCount(cwd string, claudeDir string) int {
 	count := 0
 	fs := defaultFileSystem
 
@@ -221,18 +227,14 @@ func getMCPCount(cwd string) int {
 		}
 	}
 
-	// Method 2: Check active config dir's settings.json for mcpServers (honors
-	// $CLAUDE_CONFIG_DIR — multi-account users have a settings.json per
-	// account and need MCP counts from the one they're actually using).
-	if count == 0 {
-		if claudeDir, err := claudedir.Resolve(fs.UserHomeDir); err == nil {
-			settingsPath := filepath.Join(claudeDir, "settings.json")
-			if data, err := fs.ReadFile(settingsPath); err == nil {
-				var settings map[string]interface{}
-				if err := json.Unmarshal(data, &settings); err == nil {
-					if mcpServers, ok := settings["mcpServers"].(map[string]interface{}); ok {
-						count = len(mcpServers)
-					}
+	// Method 2: Check active config dir's settings.json for mcpServers.
+	if count == 0 && claudeDir != "" {
+		settingsPath := filepath.Join(claudeDir, "settings.json")
+		if data, err := fs.ReadFile(settingsPath); err == nil {
+			var settings map[string]interface{}
+			if err := json.Unmarshal(data, &settings); err == nil {
+				if mcpServers, ok := settings["mcpServers"].(map[string]interface{}); ok {
+					count = len(mcpServers)
 				}
 			}
 		}

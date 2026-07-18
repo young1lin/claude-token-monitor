@@ -3,6 +3,7 @@ package content
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestClaudeVersionCollector(t *testing.T) {
 	assert.True(t, collector.Optional())
 
 	// Collect — the collector emits the display-ready "v"-prefixed string
-	result, err := collector.Collect(nil, nil)
+	result, err := collector.Collect(&Env{})
 	require.NoError(t, err)
 	assert.Equal(t, "vclaude", result)
 }
@@ -45,7 +46,7 @@ func TestClaudeVersionCollector_NoStdinVersionFallsBackToCommand(t *testing.T) {
 
 	// Input present but without a stdin "version" field → fall back to the
 	// `claude --version` subprocess path.
-	result, err := collector.Collect(&StatusLineInput{}, nil)
+	result, err := collector.Collect(&Env{Input: &StatusLineInput{}})
 	require.NoError(t, err)
 	assert.Equal(t, "vclaude", result)
 }
@@ -60,7 +61,7 @@ func TestClaudeVersionCollector_CommandFails(t *testing.T) {
 	}
 
 	collector := NewClaudeVersionCollector()
-	result, err := collector.Collect(nil, nil)
+	result, err := collector.Collect(&Env{})
 	require.NoError(t, err)
 	assert.Equal(t, "", result)
 }
@@ -112,8 +113,11 @@ func TestGetClaudeVersionCached_CacheHit(t *testing.T) {
 		},
 	}
 
+	// Pin one `now` for both calls so the TTL check sees the cache as fresh —
+	// mirrors how a single env.Now snapshot flows through the collector chain.
+	now := time.Now()
 	// First call
-	v1 := getClaudeVersionCached()
+	v1 := getClaudeVersionCached(now)
 	assert.Equal(t, "2.0.0", v1)
 	callCount++
 
@@ -124,7 +128,7 @@ func TestGetClaudeVersionCached_CacheHit(t *testing.T) {
 		},
 	}
 
-	v2 := getClaudeVersionCached()
+	v2 := getClaudeVersionCached(now)
 	assert.Equal(t, "2.0.0", v2, "should return cached value")
 	_ = callCount
 }
@@ -177,7 +181,7 @@ func TestClaudeVersionCollector_PrefersStdinVersion(t *testing.T) {
 	// Real CC 2.1.150 supplies "version" on stdin — must echo and skip exec.
 	input := &StatusLineInput{Version: "2.1.150"}
 
-	got, err := NewClaudeVersionCollector().Collect(input, nil)
+	got, err := NewClaudeVersionCollector().Collect(&Env{Input: input})
 	require.NoError(t, err)
 	assert.Equal(t, "v2.1.150", got)
 	assert.Equal(t, 0, runner.calls, "stdin fast path must not fork `claude --version`")
@@ -193,7 +197,7 @@ func TestClaudeVersionCollector_FallsBackWhenStdinVersionEmpty(t *testing.T) {
 	// Older CC: Version is empty → run the binary.
 	input := &StatusLineInput{Version: ""}
 
-	got, err := NewClaudeVersionCollector().Collect(input, nil)
+	got, err := NewClaudeVersionCollector().Collect(&Env{Input: input})
 	require.NoError(t, err)
 	assert.Equal(t, "v2.1.150", got)
 	assert.Equal(t, 1, runner.calls, "fallback path must invoke the runner exactly once")

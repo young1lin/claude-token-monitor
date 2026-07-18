@@ -109,7 +109,7 @@ func NewParentMemoryCollector() *ParentMemoryCollector {
 }
 
 // Collect returns the parent process memory as "💾 123.4 MB".
-func (c *ParentMemoryCollector) Collect(_ *StatusLineInput, _ *TranscriptSummary) (string, error) {
+func (c *ParentMemoryCollector) Collect(env *Env) (string, error) {
 	mb, err := defaultProcessMemoryReader.ReadParentMemoryMB()
 	if err != nil {
 		return "", nil // silent fail — optional content

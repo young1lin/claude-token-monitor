@@ -222,7 +222,7 @@ func TestCurrentTimeCollector_IdleSuffix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Act
-			got, err := collector.Collect(nil, tt.summary)
+			got, err := collector.Collect(&Env{Summary: tt.summary, Now: fixedNow})
 
 			// Assert
 			require.NoError(t, err)
@@ -244,16 +244,16 @@ func TestCurrentTimeCollector_IdleThresholdConfigurable(t *testing.T) {
 
 	// Act + Assert — default 5m: no marker for a 2m idle.
 	SetIdleWarnThreshold(5 * time.Minute)
-	got, _ := collector.Collect(nil, summary)
+	got, _ := collector.Collect(&Env{Summary: summary, Now: fixedNow})
 	assert.NotContains(t, got, "⏰", "2m idle under the 5m default shows no marker")
 
 	// Lowered to 1m: the same 2m idle now triggers the marker.
 	SetIdleWarnThreshold(time.Minute)
-	got, _ = collector.Collect(nil, summary)
+	got, _ = collector.Collect(&Env{Summary: summary, Now: fixedNow})
 	assert.Contains(t, got, "⏰ 2m", "2m idle exceeds the lowered 1m threshold")
 
 	// Disabled (<=0): the marker never renders, even when idle.
 	SetIdleWarnThreshold(0)
-	got, _ = collector.Collect(nil, summary)
+	got, _ = collector.Collect(&Env{Summary: summary, Now: fixedNow})
 	assert.NotContains(t, got, "⏰", "threshold<=0 disables the marker")
 }

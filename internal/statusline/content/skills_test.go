@@ -68,7 +68,7 @@ func TestGetUserSkillsCount(t *testing.T) {
 			t.Setenv("USERPROFILE", tmpDir)
 
 			// Act
-			got := getUserSkillsCount()
+			got := getUserSkillsCount(filepath.Join(tmpDir, ".claude"))
 
 			// Assert
 			if got != tt.want {
@@ -102,7 +102,7 @@ func TestGetUserSkillsCount_HonorsClaudeConfigDir(t *testing.T) {
 	t.Setenv("USERPROFILE", homeDir)
 	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
 
-	got := getUserSkillsCount()
+	got := getUserSkillsCount(customDir)
 	assert.Equal(t, 2, got, "must count $CLAUDE_CONFIG_DIR/skills, not <home>/.claude/skills")
 }
 

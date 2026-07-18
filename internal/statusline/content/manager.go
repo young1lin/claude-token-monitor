@@ -61,7 +61,7 @@ func (m *Manager) GetComposer(name string) (Composer, bool) {
 }
 
 // Get retrieves a single content item with caching
-func (m *Manager) Get(contentType ContentType, input *StatusLineInput, summary *TranscriptSummary) (string, error) {
+func (m *Manager) Get(contentType ContentType, env *Env) (string, error) {
 	collector, ok := m.collectors[contentType]
 	if !ok {
 		return "", fmt.Errorf("no collector registered for type: %s", contentType)
@@ -77,13 +77,17 @@ func (m *Manager) Get(contentType ContentType, input *StatusLineInput, summary *
 	}
 
 	// Collect fresh data
-	value, err := collector.Collect(input, summary)
+	value, err := collector.Collect(env)
 	if err != nil {
 		return "", err
 	}
 
 	// Update cache
 	m.cacheMu.Lock()
+	// time.Now (not env.Now) is correct here: this is in-process cache
+	// mechanics (when does this entry expire?), not a display cell. Expiry
+	// must be judged against real wall-clock regardless of what the collector
+	// chain's env.Now snapshot was — see types.go isExpired for the twin.
 	m.cache[contentType] = &cachedContent{
 		value:     value,
 		expiresAt: time.Now().Add(collector.CacheTTL()),
@@ -95,7 +99,7 @@ func (m *Manager) Get(contentType ContentType, input *StatusLineInput, summary *
 
 // collectWithTimeout runs a collector with timeout and panic recovery.
 // Returns ("", false) if the collector times out, panics, or returns an error.
-func (m *Manager) collectWithTimeout(ct ContentType, input *StatusLineInput, summary *TranscriptSummary) (string, bool) {
+func (m *Manager) collectWithTimeout(ct ContentType, env *Env) (string, bool) {
 	type collectResult struct {
 		value string
 		err   error
@@ -108,7 +112,7 @@ func (m *Manager) collectWithTimeout(ct ContentType, input *StatusLineInput, sum
 				ch <- collectResult{"", fmt.Errorf("collector %s panicked: %v", ct, r)}
 			}
 		}()
-		v, err := m.Get(ct, input, summary)
+		v, err := m.Get(ct, env)
 		ch <- collectResult{v, err}
 	}()
 
@@ -126,7 +130,7 @@ func (m *Manager) collectWithTimeout(ct ContentType, input *StatusLineInput, sum
 }
 
 // GetAll retrieves all content items in parallel with timeout and panic recovery.
-func (m *Manager) GetAll(input *StatusLineInput, summary *TranscriptSummary) map[ContentType]string {
+func (m *Manager) GetAll(env *Env) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -135,7 +139,7 @@ func (m *Manager) GetAll(input *StatusLineInput, summary *TranscriptSummary) map
 		wg.Add(1)
 		go func(ct ContentType) {
 			defer wg.Done()
-			if value, ok := m.collectWithTimeout(ct, input, summary); ok && value != "" {
+			if value, ok := m.collectWithTimeout(ct, env); ok && value != "" {
 				mu.Lock()
 				result[ct] = value
 				mu.Unlock()
@@ -149,7 +153,7 @@ func (m *Manager) GetAll(input *StatusLineInput, summary *TranscriptSummary) map
 
 // GetOptionalContent returns content for optional collectors that have values, in parallel
 // with timeout and panic recovery.
-func (m *Manager) GetOptionalContent(input *StatusLineInput, summary *TranscriptSummary) map[ContentType]string {
+func (m *Manager) GetOptionalContent(env *Env) map[ContentType]string {
 	result := make(map[ContentType]string)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -158,7 +162,7 @@ func (m *Manager) GetOptionalContent(input *StatusLineInput, summary *Transcript
 		wg.Add(1)
 		go func(ct ContentType, col ContentCollector) {
 			defer wg.Done()
-			value, ok := m.collectWithTimeout(ct, input, summary)
+			value, ok := m.collectWithTimeout(ct, env)
 			if !ok {
 				return
 			}
@@ -177,12 +181,12 @@ func (m *Manager) GetOptionalContent(input *StatusLineInput, summary *Transcript
 
 // Compose retrieves all content and applies composers to generate combined content
 // This returns a CellContent map suitable for use with the layout system
-func (m *Manager) Compose(input *StatusLineInput, summary *TranscriptSummary) layout.CellContent {
+func (m *Manager) Compose(env *Env) layout.CellContent {
 	// First, get all individual content pieces
-	individualContent := m.GetAll(input, summary)
+	individualContent := m.GetAll(env)
 
 	// Also get optional content
-	optionalContent := m.GetOptionalContent(input, summary)
+	optionalContent := m.GetOptionalContent(env)
 
 	// Merge them together
 	for k, v := range optionalContent {

@@ -19,36 +19,30 @@ import (
 // development — because git history is forever and tests run in CI.
 
 // ---------------------------------------------------------------------------
-// detectProvider
+// classifyProviderBaseURL (pure classifier — the single GLM-detection source)
 // ---------------------------------------------------------------------------
 
-func TestDetectProvider(t *testing.T) {
+func TestClassifyProviderBaseURL(t *testing.T) {
 	cases := []struct {
-		name       string
-		baseURL    string
-		apiBaseURL string
-		want       providerKind
+		name    string
+		baseURL string
+		want    providerKind
 	}{
-		{"both unset → Anthropic", "", "", providerAnthropic},
-		{"explicit Anthropic", "https://api.anthropic.com", "", providerAnthropic},
-		{"Anthropic with v1 suffix", "https://api.anthropic.com/v1", "", providerAnthropic},
-		{"Zhipu open subpath", "https://open.bigmodel.cn/api/anthropic", "", providerGLMZhipu},
-		{"Zhipu open bare", "https://open.bigmodel.cn", "", providerGLMZhipu},
-		{"Zhipu dev", "https://dev.bigmodel.cn/api/anthropic", "", providerGLMZhipu},
-		{"Z.ai", "https://api.z.ai", "", providerGLMZai},
-		{"Z.ai with path", "https://api.z.ai/api/anthropic", "", providerGLMZai},
-		{"Z.ai uppercase", "https://API.Z.AI", "", providerGLMZai},
-		{"third-party proxy", "https://my-router.example.com", "", providerCustom},
-		{"falls back to API_BASE_URL", "", "https://open.bigmodel.cn", providerGLMZhipu},
-		{"whitespace trimmed", "  https://api.z.ai  ", "", providerGLMZai},
+		{"empty → Anthropic", "", providerAnthropic},
+		{"explicit Anthropic", "https://api.anthropic.com", providerAnthropic},
+		{"Anthropic with v1 suffix", "https://api.anthropic.com/v1", providerAnthropic},
+		{"Zhipu open subpath", "https://open.bigmodel.cn/api/anthropic", providerGLMZhipu},
+		{"Zhipu open bare", "https://open.bigmodel.cn", providerGLMZhipu},
+		{"Zhipu dev", "https://dev.bigmodel.cn/api/anthropic", providerGLMZhipu},
+		{"Z.ai", "https://api.z.ai", providerGLMZai},
+		{"Z.ai with path", "https://api.z.ai/api/anthropic", providerGLMZai},
+		{"Z.ai uppercase", "https://API.Z.AI", providerGLMZai},
+		{"third-party proxy", "https://my-router.example.com", providerCustom},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ANTHROPIC_BASE_URL", tc.baseURL)
-			t.Setenv("ANTHROPIC_API_BASE_URL", tc.apiBaseURL)
-
-			assert.Equal(t, tc.want, detectProvider())
+			assert.Equal(t, tc.want, classifyProviderBaseURL(tc.baseURL))
 		})
 	}
 }
@@ -115,22 +109,22 @@ func TestGlmBaseURL(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ANTHROPIC_BASE_URL", tc.envURL)
-			t.Setenv("ANTHROPIC_API_BASE_URL", "")
-			assert.Equal(t, tc.want, glmBaseURL(tc.provider))
+			// Pure: feed a pre-built ProviderInfo, no env reads.
+			p := ProviderInfo{BaseURL: tc.envURL, Kind: tc.provider}
+			assert.Equal(t, tc.want, glmBaseURL(p))
 		})
 	}
 }
 
 func TestGlmBaseURL_OverrideWinsForTests(t *testing.T) {
 	// Sanity-check the test hook itself: glmBaseURLOverride must short-circuit
-	// even when env var would otherwise resolve to a different host.
-	t.Setenv("ANTHROPIC_BASE_URL", "https://api.z.ai")
+	// even when ProviderInfo carries a different host.
 	old := glmBaseURLOverride
 	glmBaseURLOverride = "http://127.0.0.1:9999"
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
-	assert.Equal(t, "http://127.0.0.1:9999", glmBaseURL(providerGLMZai))
+	p := ProviderInfo{BaseURL: "https://api.z.ai", Kind: providerGLMZai}
+	assert.Equal(t, "http://127.0.0.1:9999", glmBaseURL(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -138,19 +132,16 @@ func TestGlmBaseURL_OverrideWinsForTests(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetGLMAuthToken(t *testing.T) {
-	t.Run("returns env value when set", func(t *testing.T) {
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
-		assert.Equal(t, "test-token", getGLMAuthToken())
+	// Pure: getGLMAuthToken just returns ProviderInfo.AuthToken (the env read
+	// + trimming now lives in detectProviderInfo, covered by env_test.go).
+	t.Run("returns token from ProviderInfo", func(t *testing.T) {
+		p := ProviderInfo{AuthToken: "test-token"}
+		assert.Equal(t, "test-token", getGLMAuthToken(p))
 	})
 
-	t.Run("trims whitespace", func(t *testing.T) {
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "  test-token  ")
-		assert.Equal(t, "test-token", getGLMAuthToken())
-	})
-
-	t.Run("returns empty when env unset", func(t *testing.T) {
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-		assert.Equal(t, "", getGLMAuthToken())
+	t.Run("returns empty when unset", func(t *testing.T) {
+		p := ProviderInfo{AuthToken: ""}
+		assert.Equal(t, "", getGLMAuthToken(p))
 	})
 }
 
@@ -451,7 +442,7 @@ func TestGetSubscriptionQuota_GLMMaxPlanLayout(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, fixedNow, detectProviderInfo(), resolveTestClaudeDir())
 
 	require.NotEmpty(t, out)
 	// Compact format: [Plan] prefix (title-cased), MCP uses k suffix, MCP
@@ -486,7 +477,7 @@ func TestGetSubscriptionQuota_GLMProPlanLayoutIncludesWeekly(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, fixedNow, detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.Contains(t, out, "[Pro]", "plan label is title-cased and rendered as prefix")
 	assert.NotContains(t, out, "[PRO]", "raw uppercase plan name is never rendered")
@@ -517,7 +508,7 @@ func TestGetSubscriptionQuota_AnthropicLayoutWithPlanLabel(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, fixedNow, detectProviderInfo(), resolveTestClaudeDir())
 
 	// 22% → green tier; 2% → bright-green tier.
 	assert.Equal(t, "📊 [Max] \x1b[1;32m22%\x1b[0m 5h ↻ 4h32m · \x1b[1;92m2%\x1b[0m 7d ↻ 1d22h", out)
@@ -543,7 +534,7 @@ func TestGetSubscriptionQuota_APIUserNoPlanLabel(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, fixedNow, detectProviderInfo(), resolveTestClaudeDir())
 
 	// 12% → bright-green tier; 0% → bright-green tier.
 	assert.Equal(t, "📊 \x1b[1;92m12%\x1b[0m 5h ↻ 2h0m · \x1b[1;92m0%\x1b[0m 7d ↻ now", out)
@@ -562,7 +553,7 @@ func TestGetSubscriptionQuota_GLMExtraWindowsRendered(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.NotContains(t, out, "[LITE]")
 	// 11% sits in the bright-green tier.
@@ -579,7 +570,7 @@ func TestGetSubscriptionUsage_DispatcherCustomReturnsNil(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "https://my-proxy.example.com")
 	t.Setenv("ANTHROPIC_API_BASE_URL", "")
 
-	assert.Nil(t, getSubscriptionUsage(nil))
+	assert.Nil(t, getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir()))
 }
 
 func TestGetSubscriptionUsage_DispatcherGLMNoTokenReturnsNil(t *testing.T) {
@@ -589,7 +580,7 @@ func TestGetSubscriptionUsage_DispatcherGLMNoTokenReturnsNil(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	setupTempHomeDir(t)
 
-	assert.Nil(t, getSubscriptionUsage(nil))
+	assert.Nil(t, getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir()))
 }
 
 func TestGetSubscriptionUsage_GLMRateLimitHonorsRetryAfter(t *testing.T) {
@@ -612,12 +603,12 @@ func TestGetSubscriptionUsage_GLMRateLimitHonorsRetryAfter(t *testing.T) {
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
 	before := time.Now()
-	got := getSubscriptionUsage(nil)
+	got := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.Nil(t, got, "no prior cache means a GLM 429 has no usage data to render")
 
 	accountKey := glmAccountFingerprint("test-token")
-	cached := readUsageCache("glm-zhipu", accountKey)
+	cached := readUsageCache(resolveTestClaudeDir(), "glm-zhipu", accountKey)
 	require.NotNil(t, cached)
 	assert.Equal(t, "rate-limited", cached.APIError)
 	assert.Equal(t, 1, cached.RateLimitedCount)
@@ -670,7 +661,7 @@ func TestGetGLMUsage_EmptyCacheProviderTreatedAsAnthropicAndInvalidatedForGLM(t 
 	glmBaseURLOverride = srv.URL
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
-	assert.Nil(t, getSubscriptionUsage(nil),
+	assert.Nil(t, getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir()),
 		"empty-Provider cache must be treated as Anthropic and invalidated for GLM")
 }
 
@@ -703,7 +694,7 @@ func TestGetGLMUsage_ProviderMismatchOnFailureReturnsNilNotStaleData(t *testing.
 	glmBaseURLOverride = srv.URL
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
-	got := getSubscriptionUsage(nil)
+	got := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.Nil(t, got, "must not surface Anthropic cache data when GLM fetch fails")
 }
@@ -731,7 +722,7 @@ func TestGetSubscriptionUsage_DispatcherGLMFetchesViaOverride(t *testing.T) {
 	glmBaseURLOverride = srv.URL
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
-	got := getSubscriptionUsage(nil)
+	got := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 
 	require.NotNil(t, got)
 	assert.Equal(t, "glm-zhipu", got.Provider)
@@ -871,7 +862,7 @@ func TestReadUsageCache_AccountKeyMismatchReturnsNil(t *testing.T) {
 	target := filepath.Join(claudeDir, ".usage-cache.glm-zhipu.bbbbbbbbbbbb.json")
 	require.NoError(t, os.WriteFile(target, data, 0644))
 
-	got := readUsageCache("glm-zhipu", "bbbbbbbbbbbb")
+	got := readUsageCache(claudeDir, "glm-zhipu", "bbbbbbbbbbbb")
 	assert.Nil(t, got, "AccountKey mismatch inside the file must invalidate the read")
 }
 
@@ -896,7 +887,7 @@ func TestGetGLMUsage_PersistsAccountKeyInCache(t *testing.T) {
 	glmBaseURLOverride = srv.URL
 	t.Cleanup(func() { glmBaseURLOverride = old })
 
-	got := getSubscriptionUsage(nil)
+	got := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 	require.NotNil(t, got)
 
 	wantFP := glmAccountFingerprint("test-token-pro")
@@ -937,7 +928,7 @@ func TestGetGLMUsage_TwoAccountsOnSameProviderHaveIsolatedCaches(t *testing.T) {
 
 	glmBaseURLOverride = srvA.URL
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "test-token-account-A")
-	gotA := getSubscriptionUsage(nil)
+	gotA := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 	require.NotNil(t, gotA, "first account fetch must succeed")
 
 	// Account B — Max plan response. Same provider, different token.
@@ -947,7 +938,7 @@ func TestGetGLMUsage_TwoAccountsOnSameProviderHaveIsolatedCaches(t *testing.T) {
 	t.Cleanup(srvB.Close)
 	glmBaseURLOverride = srvB.URL
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "test-token-account-B")
-	gotB := getSubscriptionUsage(nil)
+	gotB := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 	require.NotNil(t, gotB, "second account fetch must succeed")
 
 	// Both cache files must exist side by side.
@@ -974,7 +965,7 @@ func TestGetGLMUsage_TwoAccountsOnSameProviderHaveIsolatedCaches(t *testing.T) {
 	t.Cleanup(srv500.Close)
 	glmBaseURLOverride = srv500.URL
 
-	gotARepeat := getSubscriptionUsage(nil)
+	gotARepeat := getSubscriptionUsage(nil, detectProviderInfo(), resolveTestClaudeDir())
 	require.NotNil(t, gotARepeat, "cached A data must still be readable after writing B")
 	assert.Equal(t, fpA, gotARepeat.AccountKey, "must read account A's cache, not B's")
 	assert.Equal(t, "pro", gotARepeat.PlanLevel, "account A's plan (Pro) must be preserved")
@@ -1031,7 +1022,7 @@ func TestGetSubscriptionQuota_GLMMax_FreshWindowStillShows5h(t *testing.T) {
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	// Must include the 5h segment with "↻ now" countdown.
 	assert.Contains(t, out, "5h ↻ now", "5h segment must stay visible during a fresh window")
@@ -1053,7 +1044,7 @@ func TestGetSubscriptionQuota_GLMPro_FreshWindowStillShows5hAnd7d(t *testing.T) 
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.Contains(t, out, "5h ↻ now")
 	assert.Contains(t, out, "7d ↻ now")
@@ -1073,7 +1064,7 @@ func TestGetSubscriptionQuota_GLMUnknownPlan_KeepsOldHideBehaviour(t *testing.T)
 	getSubscriptionUsageFn = func() *UsageData { return canned }
 	t.Cleanup(func() { getSubscriptionUsageFn = oldFn })
 
-	out := getSubscriptionQuota(&StatusLineInput{})
+	out := getSubscriptionQuota(&StatusLineInput{}, time.Now(), detectProviderInfo(), resolveTestClaudeDir())
 
 	assert.NotContains(t, out, "5h", "unknown plan must not synthesize a 5h segment")
 	assert.NotContains(t, out, "7d", "unknown plan must not synthesize a 7d segment")
