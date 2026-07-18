@@ -60,8 +60,18 @@ func (r *Renderer) displayWidth(s string) int {
 			continue
 		}
 		w := runewidth.RuneWidth(c)
-		if isBlockElement(c) && r.narrow {
-			w = 1
+		if isBlockElement(c) {
+			// Block Elements (█░▓▒) are East Asian Ambiguous, so RuneWidth
+			// flips between 1 and 2 across CJK vs C/POSIX locales — but the
+			// terminal's actual rendering is a terminal property, not a
+			// locale one. Pin width to the narrow flag so alignment is stable
+			// regardless of locale/CI: 1 on narrow terminals (Apple Terminal,
+			// VSCode, WARP, conhost), 2 on wide ones (iTerm2, Windows Terminal).
+			if r.narrow {
+				w = 1
+			} else {
+				w = 2
+			}
 		}
 		// Emoji presentation selector follows → render as a wide 2-cell emoji.
 		if i+1 < len(runes) && runes[i+1] == '️' && w < 2 {

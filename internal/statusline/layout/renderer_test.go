@@ -43,7 +43,7 @@ func TestDisplayWidth_BlockElements(t *testing.T) {
 
 	t.Run("default mode (narrow=false)", func(t *testing.T) {
 		r := newWidthRenderer(false)
-		// go-runewidth: █=2, ░=1, so 3*2 + 7*1 + 2 = 15
+		// Block Elements are width 2 when not narrow (regardless of locale/EAW).
 		got := r.displayWidth(progressBar)
 		// Note: exact value depends on go-runewidth, just verify it's calculated
 		if got <= 0 {
@@ -75,7 +75,8 @@ func TestDisplayWidth_BlockElements(t *testing.T) {
 	t.Run("two renderers with different narrow flags disagree", func(t *testing.T) {
 		// Pin the behavioural contract: the narrow flag is per-instance, so a
 		// narrow and a wide renderer looking at the same string return different
-		// widths. This is the regression guard for the global→field migration.
+		// widths. This holds on every locale because Block-Element width is
+		// decided solely by the narrow flag, never by EastAsianWidth.
 		wide := newWidthRenderer(false).displayWidth(progressBar)
 		narrow := newWidthRenderer(true).displayWidth(progressBar)
 		assert.Greater(t, wide, narrow,
@@ -412,7 +413,9 @@ func TestCompactRows(t *testing.T) {
 // different position under narrow vs. wide — proving the flag reaches the
 // width calculation (not just the method signature).
 func TestRenderer_NarrowFlagThreadsToDisplayWidth(t *testing.T) {
-	bar := "[████░░░░░░]" // 4×█ + 6×░ + 2 brackets. narrow: 12, wide: 16 (█=2)
+	// Pure-█ bar: width is decided solely by the narrow flag (1 vs 2), never
+	// by EastAsianWidth/locale, so this test is stable on every CI runner.
+	bar := "████" // 4×█. narrow: 4, wide: 8
 
 	grid := &Grid{
 		Rows: []GridRow{
@@ -425,7 +428,7 @@ func TestRenderer_NarrowFlagThreadsToDisplayWidth(t *testing.T) {
 	wideLines := NewRenderer(grid, false).Render()
 
 	// Row 1 ("x" padded to col-0 width then " | y") is where the narrow flag
-	// shows up: colWidths[0] = displayWidth(bar) = 12 (narrow) or 16 (wide).
+	// shows up: colWidths[0] = displayWidth(bar) = 4 (narrow) or 8 (wide).
 	sepNarrow := strings.Index(narrowLines[1], " | ")
 	sepWide := strings.Index(wideLines[1], " | ")
 
