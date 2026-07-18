@@ -1,5 +1,6 @@
 # Binaries
 *.exe
+bin/
 *.dll
 *.so
 *.dylib

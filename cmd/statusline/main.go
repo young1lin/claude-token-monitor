@@ -28,50 +28,63 @@ var (
 // currentOS allows tests to override runtime.GOOS for cross-platform coverage.
 var currentOS = runtime.GOOS
 
-// detectWideCharTerminal checks if the current terminal renders
-// emoji as width 2 characters.
-// Returns true ONLY for terminals known to use wide character rendering.
+// detectWideCharTerminal reports whether the terminal renders East Asian
+// Ambiguous characters (· × → ° … and similar symbols) at width 2.
+//
+// IMPORTANT: go-runewidth computes emoji width (📁🌿…) independently and always
+// returns 2, so this flag ONLY affects ambiguous-width symbols — never emoji.
+// Almost every modern terminal (macOS Terminal.app, iTerm2, VSCode, WARP,
+// Windows Terminal, cmd, PowerShell) renders ambiguous symbols at width 1 by
+// default, so we default to false. If your locale/terminal genuinely renders
+// ambiguous characters wide (some CJK-locale configs), opt in with
+// STATUSLINE_AMBIGUOUS_WIDE=1.
 func detectWideCharTerminal() bool {
-	// macOS terminals typically use wide character rendering
-	if currentOS == "darwin" {
+	if os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") == "1" {
 		return true
 	}
+	return false
+}
 
-	// Windows Terminal - the ONLY Windows terminal that uses wide chars
-	if os.Getenv("WT_SESSION") != "" {
+// detectNarrowBlockTerminal reports whether the current terminal renders Block
+// Elements (█░▓▒) at width 1. go-runewidth reports █ as width 2 independent of
+// EastAsianWidth, so for these terminals we must override to width 1 or the
+// progress bar column alignment drifts (the "|" separators stop lining up).
+//
+// Width-1 terminals:
+//   - macOS Terminal.app (TERM_PROGRAM=Apple_Terminal)
+//   - VSCode integrated terminal (TERM_PROGRAM=vscode), any OS
+//   - WARP (TERM_PROGRAM=WarpTerminal), any OS
+//   - Windows cmd / PowerShell / conhost (no WT_SESSION)
+//
+// Width-2 terminals (no override): iTerm2, Windows Terminal, Ghostty, etc.
+func detectNarrowBlockTerminal() bool {
+	switch os.Getenv("TERM_PROGRAM") {
+	case "Apple_Terminal", "vscode", "WarpTerminal":
 		return true
 	}
-
-	// iTerm2 (macOS, but check anyway)
-	if os.Getenv("TERM_PROGRAM") == "iTerm.app" {
+	// Windows classic console (cmd, PowerShell, conhost) renders blocks at width 1.
+	if currentOS == "windows" && os.Getenv("WT_SESSION") == "" {
 		return true
 	}
-
-	// Default: narrow character rendering (width 1)
-	// This includes: VSCode Terminal, WARP, cmd.exe, PowerShell, etc.
 	return false
 }
 
 func init() {
-	// Set emoji width based on terminal detection for proper alignment.
+	// Configure the Condition that go-runewidth's RuneWidth actually consults.
+	// Setting the package-level runewidth.EastAsianWidth variable is a NO-OP in
+	// current go-runewidth — RuneWidth delegates to DefaultCondition. We must set
+	// the field directly and rebuild its lookup table for the change to take.
 	//
-	// EastAsianWidth=true means emoji calculated as width 2
-	// EastAsianWidth=false means emoji calculated as width 1
-	//
-	// Only these terminals use wide character rendering:
-	// - macOS (all terminals)
-	// - Windows Terminal (WT_SESSION)
-	// - iTerm2 (TERM_PROGRAM=iTerm.app)
-	//
-	// Other terminals (VSCode, WARP, cmd, PowerShell) use narrow rendering.
-	runewidth.EastAsianWidth = detectWideCharTerminal()
+	// Note: emoji (📁🌿…) width is computed independently and is always 2,
+	// regardless of this flag. This flag ONLY governs East Asian Ambiguous
+	// symbols (· × → ° …), which almost all terminals render at width 1.
+	runewidth.DefaultCondition.EastAsianWidth = detectWideCharTerminal()
+	runewidth.DefaultCondition.CreateLUT()
 
-	// For non-Windows-Terminal on Windows, enable narrow Block Elements.
-	// VSCode Terminal and WARP render all Block Elements (█░▓▒) as width 1,
-	// but go-runewidth reports █ as width 2. This causes misalignment.
-	if currentOS == "windows" && os.Getenv("WT_SESSION") == "" {
-		layout.UseNarrowBlockWidth = true
-	}
+	// Block Elements (█░▓▒) are reported as width 2 by go-runewidth regardless of
+	// EastAsianWidth, but some terminals render them at width 1. Force width 1 for
+	// those terminals or multi-line "|" column alignment drifts.
+	layout.UseNarrowBlockWidth = detectNarrowBlockTerminal()
 }
 
 func main() {

@@ -21,24 +21,35 @@ func isBlockElement(r rune) bool {
 	return r >= '\u2580' && r <= '\u259F'
 }
 
-// displayWidth returns the visible width of a string, ignoring ANSI escape sequences.
-// When UseNarrowBlockWidth is true, Block Elements are treated as width 1.
+// displayWidth returns the visible width of a string, ignoring ANSI escape
+// sequences.
+//   - When UseNarrowBlockWidth is true, Block Elements (█░▓▒) are treated as
+//     width 1 (terminals like macOS Terminal.app render them narrow).
+//   - A base character immediately followed by U+FE0F (Variation Selector-16,
+//     emoji presentation) is promoted to width 2. go-runewidth undercounts
+//     emoji-presentation symbols such as 🗂 (U+1F5C2) as width 1, while every
+//     terminal renders them as a 2-cell color emoji — without this override the
+//     column alignment drifts.
 func displayWidth(s string) int {
 	// Strip ANSI codes first
 	s = ansiRegex.ReplaceAllString(s, "")
 
-	if !UseNarrowBlockWidth {
-		return runewidth.StringWidth(s)
-	}
-
-	// Custom width calculation: Block Elements = width 1
+	runes := []rune(s)
 	width := 0
-	for _, r := range s {
-		if isBlockElement(r) {
-			width += 1 // All Block Elements treated as width 1
-		} else {
-			width += runewidth.RuneWidth(r)
+	for i, r := range runes {
+		// U+FE0F adds no width on its own; it is accounted for via the base rune.
+		if r == '\uFE0F' {
+			continue
 		}
+		w := runewidth.RuneWidth(r)
+		if isBlockElement(r) && UseNarrowBlockWidth {
+			w = 1
+		}
+		// Emoji presentation selector follows → render as a wide 2-cell emoji.
+		if i+1 < len(runes) && runes[i+1] == '\uFE0F' && w < 2 {
+			w = 2
+		}
+		width += w
 	}
 	return width
 }

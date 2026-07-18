@@ -310,72 +310,51 @@ func TestStatusLineInputProjectName(t *testing.T) {
 	}
 }
 
-// TestDetectWideCharTerminal verifies terminal detection logic.
-// Uses currentOS override to test all platform branches cross-platform.
+// TestDetectWideCharTerminal verifies the East Asian ambiguous-width flag.
+// It no longer keys off OS/terminal: go-runewidth computes emoji width
+// independently, so this flag only governs ambiguous symbols (· × → …) and
+// defaults to false (narrow) for every terminal unless opted in via env.
 func TestDetectWideCharTerminal(t *testing.T) {
 	tests := []struct {
 		name           string
-		os             string
-		wtSession      string
-		termProgram    string
+		ambiguousWide  string
 		expectedResult bool
 	}{
-		{
-			name:           "darwin always returns true",
-			os:             "darwin",
-			wtSession:      "",
-			termProgram:    "",
-			expectedResult: true,
-		},
-		{
-			name:           "darwin returns true even with WT_SESSION",
-			os:             "darwin",
-			wtSession:      "some-session",
-			termProgram:    "",
-			expectedResult: true,
-		},
-		{
-			name:           "windows with WT_SESSION returns true",
-			os:             "windows",
-			wtSession:      "abc123",
-			termProgram:    "",
-			expectedResult: true,
-		},
-		{
-			name:           "windows without WT_SESSION returns false",
-			os:             "windows",
-			wtSession:      "",
-			termProgram:    "",
-			expectedResult: false,
-		},
-		{
-			name:           "linux with WT_SESSION returns true",
-			os:             "linux",
-			wtSession:      "session-id",
-			termProgram:    "",
-			expectedResult: true,
-		},
-		{
-			name:           "linux with iTerm.app returns true",
-			os:             "linux",
-			wtSession:      "",
-			termProgram:    "iTerm.app",
-			expectedResult: true,
-		},
-		{
-			name:           "linux no env vars returns false",
-			os:             "linux",
-			wtSession:      "",
-			termProgram:    "",
-			expectedResult: false,
-		},
-		{
-			name:           "linux with vscode returns false",
-			os:             "linux",
-			wtSession:      "",
-			termProgram:    "vscode",
-			expectedResult: false,
-		},
+		{"defaults to false", "", false},
+		{"env opt-in", "1", true},
+		{"env zero ignored", "0", false},
+		{"env garbage ignored", "yes", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("STATUSLINE_AMBIGUOUS_WIDE", tt.ambiguousWide)
+			result := detectWideCharTerminal()
+			assert.Equal(t, tt.expectedResult, result,
+				"STATUSLINE_AMBIGUOUS_WIDE=%q", tt.ambiguousWide)
+		})
+	}
+}
+
+// TestDetectNarrowBlockTerminal verifies which terminals get width-1 Block Elements.
+func TestDetectNarrowBlockTerminal(t *testing.T) {
+	tests := []struct {
+		name        string
+		os          string
+		wtSession   string
+		termProgram string
+		want        bool
+	}{
+		{"Apple Terminal on mac", "darwin", "", "Apple_Terminal", true},
+		{"iTerm2 on mac stays width-2", "darwin", "", "iTerm.app", false},
+		{"Ghostty stays width-2", "darwin", "", "ghostty", false},
+		{"VSCode on mac", "darwin", "", "vscode", true},
+		{"VSCode on linux", "linux", "", "vscode", true},
+		{"WARP on mac", "darwin", "", "WarpTerminal", true},
+		{"windows cmd (no WT_SESSION)", "windows", "", "", true},
+		{"Windows Terminal (WT_SESSION set)", "windows", "abc", "", false},
+		{"linux plain (no TERM_PROGRAM)", "linux", "", "", false},
+		{"linux unknown TERM_PROGRAM", "linux", "", "alacritty", false},
 	}
 
 	for _, tt := range tests {
@@ -387,8 +366,8 @@ func TestDetectWideCharTerminal(t *testing.T) {
 			t.Setenv("WT_SESSION", tt.wtSession)
 			t.Setenv("TERM_PROGRAM", tt.termProgram)
 
-			result := detectWideCharTerminal()
-			assert.Equal(t, tt.expectedResult, result,
+			got := detectNarrowBlockTerminal()
+			assert.Equal(t, tt.want, got,
 				"os=%q, WT_SESSION=%q, TERM_PROGRAM=%q",
 				tt.os, tt.wtSession, tt.termProgram)
 		})

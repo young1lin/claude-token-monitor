@@ -116,16 +116,18 @@ func NewFolderCollector() *FolderCollector {
 	}
 }
 
-// Collect returns the project folder name, prefixed with the 📁 glyph. Like
-// every other collector, it emits display-ready content rather than leaving
-// the prefix for the entrypoint to bolt on. An empty cwd yields empty output
-// so the optional cell drops out of the grid.
+// Collect returns the project folder name, prefixed with the 🗂\uFE0F glyph (card
+// index dividers, U+1F5C2 + U+FE0F). The Variation Selector forces emoji
+// presentation so macOS renders the colored multi-tab version instead of the
+// grayscale 📁 folder. Like every other collector, it emits display-ready
+// content rather than leaving the prefix for the entrypoint to bolt on. An
+// empty cwd yields empty output so the optional cell drops out of the grid.
 func (c *FolderCollector) Collect(statusInput *StatusLineInput, _ *TranscriptSummary) (string, error) {
 	name := getProjectName(statusInput.Cwd)
 	if name == "" {
 		return "", nil
 	}
-	return "📁 " + name, nil
+	return "\U0001F5C2\uFE0F " + name, nil
 }
 
 // getProjectName extracts the project folder name

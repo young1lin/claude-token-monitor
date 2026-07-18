@@ -175,14 +175,14 @@ func TestFolderCollector_Collect(t *testing.T) {
 			input: &StatusLineInput{
 				Cwd: "/home/user/minimal-mcp",
 			},
-			expected: "📁 minimal-mcp",
+			expected: "🗂️ minimal-mcp",
 		},
 		{
 			name: "Valid Windows path",
 			input: &StatusLineInput{
 				Cwd: "C:\\Users\\User\\my-project",
 			},
-			expected: "📁 my-project",
+			expected: "🗂️ my-project",
 		},
 		{
 			name: "Empty cwd",
