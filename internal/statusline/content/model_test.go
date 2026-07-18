@@ -195,9 +195,8 @@ func TestContextPercentColor(t *testing.T) {
 }
 
 // TestContextAbsoluteColor pins the absolute-token tiers used for extended
-// (>200K) context windows. The intent is to fire the compress-now warning
-// near 200K used regardless of the window cap, because beyond ~200K the
-// model degrades on speed and cost even when AutoCompact is far away.
+// (>200K) context windows. Thresholds (400K/300K/250K, user-tuned 2026-07-19
+// for an early-warning posture): red at 400K, yellow at 300K, cyan at 250K.
 func TestContextAbsoluteColor(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -205,12 +204,12 @@ func TestContextAbsoluteColor(t *testing.T) {
 		want   string
 	}{
 		{"0 tokens is green", 0, "\x1b[1;32m"},
-		{"179,999 tokens is green", 179_999, "\x1b[1;32m"},
-		{"180K enters cyan", 180_000, "\x1b[1;36m"},
-		{"199,999 stays cyan", 199_999, "\x1b[1;36m"},
-		{"200K enters yellow (compress soon)", 200_000, "\x1b[1;33m"},
-		{"249,999 stays yellow", 249_999, "\x1b[1;33m"},
-		{"250K enters red (compress NOW)", 250_000, "\x1b[1;31m"},
+		{"249,999 tokens is green", 249_999, "\x1b[1;32m"},
+		{"250K enters cyan (heads-up)", 250_000, "\x1b[1;36m"},
+		{"299,999 stays cyan", 299_999, "\x1b[1;36m"},
+		{"300K enters yellow (compress soon)", 300_000, "\x1b[1;33m"},
+		{"399,999 stays yellow", 399_999, "\x1b[1;33m"},
+		{"400K enters red (compress NOW)", 400_000, "\x1b[1;31m"},
 		{"500K stays red", 500_000, "\x1b[1;31m"},
 	}
 	for _, tt := range tests {
@@ -222,8 +221,8 @@ func TestContextAbsoluteColor(t *testing.T) {
 
 // TestContextColor verifies the dispatch rule: ≤200K windows use the legacy
 // percentage tiers, while >200K windows switch to the absolute-token tiers
-// so a 1M-cap user still sees a warning at ~200K used (where pct-based
-// thresholds would leave them green right up to 600K).
+// (400K/300K/250K) so a 1M-cap user sees warnings keyed to absolute usage
+// rather than a percentage that stays green until 600K.
 func TestContextColor(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -240,15 +239,12 @@ func TestContextColor(t *testing.T) {
 		// ContextWindowSize doesn't produce a divide-by-zero.
 		{"zero cap defaults to 200K (bright green)", 10_000, 0, "\x1b[1;92m"},
 
-		// >200K cap: absolute-token path. The key user-facing intent —
-		// 200K used must NOT be green just because the cap is 1M.
+		// >200K cap: absolute-token path (400K/300K/250K).
 		{"1M cap, 50K → green", 50_000, 1_000_000, "\x1b[1;32m"},
-		{"1M cap, 180K → cyan (closing in)", 180_000, 1_000_000, "\x1b[1;36m"},
-		{"1M cap, 200K → yellow (compress soon)", 200_000, 1_000_000, "\x1b[1;33m"},
-		{"1M cap, 260K → red (compress NOW)", 260_000, 1_000_000, "\x1b[1;31m"},
-		// 250K on a 1M window: under the OLD pct logic this was 25% =
-		// cyan; under the new logic it's red — pinning the regression.
-		{"1M cap, 250K → red (was cyan under pct logic)", 250_000, 1_000_000, "\x1b[1;31m"},
+		{"1M cap, 200K → green (still headroom)", 200_000, 1_000_000, "\x1b[1;32m"},
+		{"1M cap, 250K → cyan (heads-up)", 250_000, 1_000_000, "\x1b[1;36m"},
+		{"1M cap, 300K → yellow (compress soon)", 300_000, 1_000_000, "\x1b[1;33m"},
+		{"1M cap, 400K → red (compress NOW)", 400_000, 1_000_000, "\x1b[1;31m"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -273,18 +269,18 @@ func TestTokenBarCollector_ExtendedWindow(t *testing.T) {
 			wantColor: "\x1b[1;32m",
 		},
 		{
-			name:      "1M cap, 180K used → cyan",
-			input:     makeStatusInput(180_000, 0, 0, 1_000_000),
+			name:      "1M cap, 250K used → cyan",
+			input:     makeStatusInput(250_000, 0, 0, 1_000_000),
 			wantColor: "\x1b[1;36m",
 		},
 		{
-			name:      "1M cap, 200K used → yellow (compress soon)",
-			input:     makeStatusInput(200_000, 0, 0, 1_000_000),
+			name:      "1M cap, 300K used → yellow (compress soon)",
+			input:     makeStatusInput(300_000, 0, 0, 1_000_000),
 			wantColor: "\x1b[1;33m",
 		},
 		{
-			name:      "1M cap, 260K used → red (compress NOW)",
-			input:     makeStatusInput(260_000, 0, 0, 1_000_000),
+			name:      "1M cap, 400K used → red (compress NOW)",
+			input:     makeStatusInput(400_000, 0, 0, 1_000_000),
 			wantColor: "\x1b[1;31m",
 		},
 	}
@@ -338,7 +334,7 @@ func TestTokenBarCollector_MinimumFillWhenUsed(t *testing.T) {
 
 // TestTokenInfoCollector_ExtendedWindow mirrors the bar test for the
 // percent-text segment so the "(20.0%)" colouring escalates on the same
-// schedule. Without this, a 1M user would see the bar go yellow at 200K but
+// schedule. Without this, a 1M user would see the bar go yellow at 300K but
 // the parenthesised percent still display in the old (green) tier.
 func TestTokenInfoCollector_ExtendedWindow(t *testing.T) {
 	collector := NewTokenInfoCollector()
@@ -348,9 +344,9 @@ func TestTokenInfoCollector_ExtendedWindow(t *testing.T) {
 		wantColor string
 	}{
 		{"1M cap, 50K → green", makeStatusInput(50_000, 0, 0, 1_000_000), "\x1b[1;32m"},
-		{"1M cap, 180K → cyan", makeStatusInput(180_000, 0, 0, 1_000_000), "\x1b[1;36m"},
-		{"1M cap, 200K → yellow", makeStatusInput(200_000, 0, 0, 1_000_000), "\x1b[1;33m"},
-		{"1M cap, 260K → red", makeStatusInput(260_000, 0, 0, 1_000_000), "\x1b[1;31m"},
+		{"1M cap, 250K → cyan", makeStatusInput(250_000, 0, 0, 1_000_000), "\x1b[1;36m"},
+		{"1M cap, 300K → yellow", makeStatusInput(300_000, 0, 0, 1_000_000), "\x1b[1;33m"},
+		{"1M cap, 400K → red", makeStatusInput(400_000, 0, 0, 1_000_000), "\x1b[1;31m"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

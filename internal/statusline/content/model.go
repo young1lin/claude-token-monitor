@@ -95,19 +95,19 @@ func contextPercentColor(pct float64) string {
 }
 
 // contextAbsoluteColor maps absolute used-token counts to colour tiers for
-// extended-window models (>200K total cap). Thresholds are calibrated so the
-// 200K mark — where context length starts to degrade speed and inflate cost
-// even though the hard cap is far away — lands in yellow ("you should
-// compress"), and 250K escalates to red ("compress now"). 180K is the first
-// heads-up because below it the user has comfortable headroom.
+// extended-window models (>200K total cap). Thresholds (400K/300K/250K, set
+// 2026-07-19 per user preference for an early-warning posture on the 1M
+// window): red at 400K ("compress NOW"), yellow at 300K ("should compress
+// soon"), cyan at 250K (first heads-up). Below 250K the user has comfortable
+// headroom.
 func contextAbsoluteColor(tokens int) string {
 	switch {
-	case tokens >= 250_000:
+	case tokens >= 400_000:
 		return "\x1b[1;31m" // red: compress NOW
-	case tokens >= 200_000:
+	case tokens >= 300_000:
 		return "\x1b[1;33m" // yellow: should compress soon
-	case tokens >= 180_000:
-		return "\x1b[1;36m" // cyan: closing in on 200K
+	case tokens >= 250_000:
+		return "\x1b[1;36m" // cyan: first heads-up
 	}
 	return "\x1b[1;32m" // green: plenty of room
 }
