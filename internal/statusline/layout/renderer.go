@@ -66,7 +66,8 @@ func (r *Renderer) displayWidth(s string) int {
 			// terminal's actual rendering is a terminal property, not a
 			// locale one. Pin width to the narrow flag so alignment is stable
 			// regardless of locale/CI: 1 on narrow terminals (Apple Terminal,
-			// VSCode, WARP, conhost), 2 on wide ones (iTerm2, Windows Terminal).
+			// VSCode, WARP, all Windows terminals incl. Windows Terminal), 2 on
+			// wide ones (iTerm2).
 			if r.narrow {
 				w = 1
 			} else {

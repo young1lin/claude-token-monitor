@@ -178,3 +178,38 @@ func TestDetectTerminal_WindowsCmdNarrow(t *testing.T) {
 	ti := detectTerminal()
 	assert.True(t, ti.NarrowBlock)
 }
+
+// Windows Terminal (WT_SESSION set) renders Block Elements (█░) at width 1 —
+// the same as conhost — NOT width 2. Cascadia Code (WT's default font) draws
+// every U+2580–U+259F glyph in a single cell. If NarrowBlock stays false here,
+// displayWidth counts the 10-cell progress bar as 20, the progress-bar row's
+// column gets padded ~10 cells too wide, and its trailing "|" drifts ~10 cells
+// left of the other rows. Verified via repro: row1 col1 = 64 (narrow=false) vs
+// 54 (narrow=true); the 10-cell delta is exactly the bar.
+func TestDetectTerminal_WindowsTerminalNarrowBlock(t *testing.T) {
+	old := goosFn
+	t.Cleanup(func() { goosFn = old })
+	goosFn = func() string { return "windows" }
+	t.Setenv("WT_SESSION", "wt-test-session")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("STATUSLINE_AMBIGUOUS_WIDE", "")
+	ti := detectTerminal()
+	assert.True(t, ti.NarrowBlock,
+		"Windows Terminal renders Block Elements narrow (width 1), so NarrowBlock must be true")
+	assert.True(t, ti.AmbigWide,
+		"Windows Terminal renders East Asian Ambiguous wide (2 cells), so AmbigWide defaults to true")
+	assert.True(t, ti.IsWTSession)
+}
+
+// TestDetectTerminal_WTAmbigWideOverrideOff verifies STATUSLINE_AMBIGUOUS_WIDE=0
+// forces narrow Ambiguous rendering even on Windows Terminal (escape hatch if a
+// user's WT font renders ·↻ narrow).
+func TestDetectTerminal_WTAmbigWideOverrideOff(t *testing.T) {
+	old := goosFn
+	t.Cleanup(func() { goosFn = old })
+	goosFn = func() string { return "windows" }
+	t.Setenv("WT_SESSION", "wt-test-session")
+	t.Setenv("STATUSLINE_AMBIGUOUS_WIDE", "0")
+	ti := detectTerminal()
+	assert.False(t, ti.AmbigWide, "=0 must override WT's default-wide Ambiguous")
+}

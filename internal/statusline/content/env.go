@@ -73,13 +73,35 @@ func BuildEnv(input *StatusLineInput, summary *TranscriptSummary) *Env {
 // the process environment.
 func detectTerminal() TerminalInfo {
 	program := os.Getenv("TERM_PROGRAM")
-	ambigWide := os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") == "1"
+	// East Asian Ambiguous width (·↻×→…). STATUSLINE_AMBIGUOUS_WIDE is a
+	// tri-state override: "1" forces wide, "0" forces narrow, unset falls
+	// back to the terminal default. Windows Terminal renders these as wide
+	// (2 cells) with Cascadia Code, so WT defaults to wide; everything else
+	// defaults to narrow. Matching the terminal's actual rendering here is
+	// what keeps the quota row (📊 … ↻ … · …) aligned with the others.
+	ambigWide := false
+	switch os.Getenv("STATUSLINE_AMBIGUOUS_WIDE") {
+	case "1":
+		ambigWide = true
+	case "0":
+		ambigWide = false
+	default:
+		if goosFn() == "windows" && os.Getenv("WT_SESSION") != "" {
+			ambigWide = true
+		}
+	}
 	narrow := false
 	switch program {
 	case "Apple_Terminal", "vscode", "WarpTerminal":
 		narrow = true
 	}
-	if goosFn() == "windows" && os.Getenv("WT_SESSION") == "" {
+	if goosFn() == "windows" {
+		// All Windows terminals (Windows Terminal, conhost, cmd, PowerShell)
+		// render Block Elements (█░) at width 1 — Cascadia Code (WT's default
+		// font) draws every U+2580–U+259F glyph in a single cell. The previous
+		// `WT_SESSION == ""` guard wrongly classified Windows Terminal as wide,
+		// which made displayWidth count the 10-cell progress bar as 20 and
+		// drifted its row ~10 cells out of alignment with the others.
 		narrow = true
 	}
 	return TerminalInfo{
