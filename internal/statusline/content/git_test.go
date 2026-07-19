@@ -379,6 +379,133 @@ func TestGetGitStatus_EmptyLines(t *testing.T) {
 	}
 }
 
+func TestGetGitStatus_StagedRename(t *testing.T) {
+	// Arrange: git reports a staged rename as a single "R" line.
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git status --porcelain --untracked-files=all": []byte(
+				"R  old.txt -> new.txt\n",
+			),
+		},
+	}
+
+	// Act
+	added, deleted, modified := getGitStatus("/project")
+
+	// Assert: old path deleted + new path added, so staging the rename does not
+	// hide it from the counts.
+	if added != 1 || deleted != 1 || modified != 0 {
+		t.Errorf("expected 1,1,0, got %d,%d,%d", added, deleted, modified)
+	}
+}
+
+func TestGetGitStatus_UnstagedRenameMatchesStaged(t *testing.T) {
+	// Arrange: the SAME rename before staging shows as a worktree delete of the
+	// old path plus an untracked add of the new path.
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git status --porcelain --untracked-files=all": []byte(
+				" D old.txt\n?? new.txt\n",
+			),
+		},
+	}
+
+	// Act
+	added, deleted, modified := getGitStatus("/project")
+
+	// Assert: identical to the staged form (1,1,0) — the invariant we care about.
+	if added != 1 || deleted != 1 || modified != 0 {
+		t.Errorf("expected 1,1,0 (must match staged rename), got %d,%d,%d", added, deleted, modified)
+	}
+}
+
+func TestGetGitStatus_Copy(t *testing.T) {
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git status --porcelain --untracked-files=all": []byte(
+				"C  src.txt -> copy.txt\n",
+			),
+		},
+	}
+
+	added, deleted, modified := getGitStatus("/project")
+	if added != 1 || deleted != 0 || modified != 0 {
+		t.Errorf("expected 1,0,0, got %d,%d,%d", added, deleted, modified)
+	}
+}
+
+func TestGetGitStatus_TypeChangeAndUnmerged(t *testing.T) {
+	defer restoreDefaultRunner()
+	resetGitCache()
+	defaultCommandRunner = &StubCommandRunner{
+		Outputs: map[string][]byte{
+			"git status --porcelain --untracked-files=all": []byte(
+				"T  typechange.txt\nUU conflict.txt\n",
+			),
+		},
+	}
+
+	added, deleted, modified := getGitStatus("/project")
+	if added != 0 || deleted != 0 || modified != 2 {
+		t.Errorf("expected 0,0,2, got %d,%d,%d", added, deleted, modified)
+	}
+}
+
+func TestClassifyStatusLine(t *testing.T) {
+	tests := []struct {
+		name                     string
+		xy                       string
+		added, deleted, modified int
+	}{
+		// Untracked / ignored
+		{"untracked", "??", 1, 0, 0},
+		{"ignored", "!!", 0, 0, 0},
+		// Staged single states
+		{"staged add", "A ", 1, 0, 0},
+		{"staged modify", "M ", 0, 0, 1},
+		{"staged delete", "D ", 0, 1, 0},
+		// Worktree single states
+		{"worktree modify", " M", 0, 0, 1},
+		{"worktree delete", " D", 0, 1, 0},
+		// Type change (both columns)
+		{"staged typechange", "T ", 0, 0, 1},
+		{"worktree typechange", " T", 0, 0, 1},
+		// Combined columns resolve to one bucket (precedence add > delete > modify)
+		{"staged add + worktree modify", "AM", 1, 0, 0},
+		{"staged modify + worktree modify", "MM", 0, 0, 1},
+		{"staged modify + worktree delete", "MD", 0, 1, 0},
+		{"staged add + worktree delete", "AD", 1, 0, 0},
+		// Rename / copy
+		{"rename", "R ", 1, 1, 0},
+		{"rename + worktree modify", "RM", 1, 1, 0},
+		{"copy", "C ", 1, 0, 0},
+		// Unmerged / conflict states
+		{"both modified unmerged", "UU", 0, 0, 1},
+		{"added by us", "AU", 0, 0, 1},
+		{"deleted by them", "UD", 0, 0, 1},
+		{"both added unmerged", "AA", 1, 0, 0},
+		{"both deleted unmerged", "DD", 0, 1, 0},
+		// Unmodified (should not happen in porcelain, but must count as nothing)
+		{"unmodified", "  ", 0, 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a, d, m := classifyStatusLine(tt.xy[0], tt.xy[1])
+			if a != tt.added || d != tt.deleted || m != tt.modified {
+				t.Errorf("classifyStatusLine(%q) = %d,%d,%d, want %d,%d,%d",
+					tt.xy, a, d, m, tt.added, tt.deleted, tt.modified)
+			}
+		})
+	}
+}
+
 // --- getGitRemoteStatusRaw tests ---
 
 func TestGetGitRemoteStatusRaw_EmptyCwd(t *testing.T) {

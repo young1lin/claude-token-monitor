@@ -262,7 +262,11 @@ func getGitBranch(cwd string) string {
 	return ""
 }
 
-// getGitStatus returns added, deleted, modified file counts.
+// getGitStatus returns added, deleted, modified file counts for all uncommitted
+// changes relative to HEAD. Staging is deliberately invisible: a change is
+// counted identically whether it sits in the index (staged) or the worktree
+// (unstaged), so running `git add` never shifts the numbers. Each porcelain
+// line is classified into a single bucket by classifyStatusLine.
 func getGitStatus(cwd string) (int, int, int) {
 	if cwd == "" {
 		return 0, 0, 0
@@ -280,35 +284,55 @@ func getGitStatus(cwd string) (int, int, int) {
 		if len(line) < 2 {
 			continue
 		}
-		xy := line[:2]
-		x := xy[0]
-		y := xy[1]
-
-		if x == '?' && y == '?' {
-			added++
-			continue
-		}
-
-		switch x {
-		case 'A':
-			added++
-		case 'M':
-			modified++
-		case 'D':
-			deleted++
-		}
-
-		if x == ' ' {
-			switch y {
-			case 'M':
-				modified++
-			case 'D':
-				deleted++
-			}
-		}
+		a, d, m := classifyStatusLine(line[0], line[1])
+		added += a
+		deleted += d
+		modified += m
 	}
 
 	return added, deleted, modified
+}
+
+// classifyStatusLine maps a git porcelain v1 XY status pair to one file's
+// added/deleted/modified deltas. It counts each file once by its net state
+// versus HEAD so the totals are the same whether a change is staged or not
+// (the "staging is invisible" principle).
+//
+// The tricky case is a rename: git only collapses a rename into a single "R"
+// entry AFTER it is staged; before staging the same rename shows up as a
+// worktree delete of the old path plus an untracked add of the new path. To
+// keep the counts stable across `git add`, a rename expands back to +1 added
+// (new path) and +1 deleted (old path). Copies add the new path only; type
+// changes and unmerged/conflicted files count as one modified.
+func classifyStatusLine(x, y byte) (added, deleted, modified int) {
+	// Untracked file → a brand-new path. (Ignored "!!" lines, which only appear
+	// with --ignored, fall through and count as nothing.)
+	if x == '?' {
+		return 1, 0, 0
+	}
+	// Unmerged / conflicted (either column is 'U') → an in-progress change.
+	if x == 'U' || y == 'U' {
+		return 0, 0, 1
+	}
+	// Rename → old path removed, new path created (see doc comment above).
+	if x == 'R' || y == 'R' {
+		return 1, 1, 0
+	}
+	// Copy → new path created, source path untouched.
+	if x == 'C' || y == 'C' {
+		return 1, 0, 0
+	}
+	// Remaining single-file states, resolved to one bucket with precedence
+	// added > deleted > modified (so "AM" → added, "MD" → deleted).
+	switch {
+	case x == 'A':
+		return 1, 0, 0
+	case x == 'D' || y == 'D':
+		return 0, 1, 0
+	case x == 'M' || y == 'M' || x == 'T' || y == 'T':
+		return 0, 0, 1
+	}
+	return 0, 0, 0
 }
 
 // formatGitRemote formats git remote status
