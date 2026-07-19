@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-07-19
+
+### Fixed
+- **Staged renames (and copies, type changes, unmerged files) are now counted in
+  the git status cell.** The porcelain parser handled only `A`/`M`/`D`, so a
+  staged rename — which git collapses into a single `R` line only *after*
+  `git add` — matched no case and vanished from the `+/~/-` totals once staged.
+  Each line is now classified once on the principle that staging is invisible: a
+  rename counts as `+1 / -1` (matching its pre-staging delete + untracked-add
+  shape), a copy as `+1`, and a type change or conflict as `~1`. Common
+  `A`/`M`/`D`/`??` cases are unchanged.
+- **暂存的重命名（以及复制、类型变更、未合并冲突）现在会计入 git 状态格。** 之前的
+  porcelain 解析只认 `A`/`M`/`D`，而重命名只有在 `git add` 之后才被 git 合并成单独的
+  `R` 行——于是暂存后的重命名不被计数，直接从 `+/~/-` 里消失。现在每一行按「暂存对计数
+  不可见」的原则归类一次：重命名计为 `+1 / -1`（与暂存前的「删除旧 + 新增未跟踪」一致），
+  复制计为 `+1`，类型变更或冲突计为 `~1`。常规 `A`/`M`/`D`/`??` 不受影响。
+
 ## [0.2.11] - 2026-07-19
 
 ### Changed
