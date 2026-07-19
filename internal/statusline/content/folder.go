@@ -117,18 +117,24 @@ func NewFolderCollector() *FolderCollector {
 }
 
 // Collect returns the project folder name, prefixed with the 🗂\uFE0F glyph (card
-// index dividers, U+1F5C2 + U+FE0F). The Variation Selector forces emoji
-// presentation so macOS renders the colored multi-tab version instead of the
-// grayscale 📁 folder. Like every other collector, it emits display-ready
-// content rather than leaving the prefix for the entrypoint to bolt on. An
-// empty cwd yields empty output so the optional cell drops out of the grid.
+// index dividers, U+1F5C2 + U+FE0F) on macOS only: the Variation Selector
+// forces emoji presentation so macOS renders the colored multi-tab icon.
+// Every other OS keeps the original 📁 (U+1F4C1) folder, since the VS16
+// sequence has no colored rendering there and would only degrade to a
+// grayscale/tofu glyph. Both occupy two display cells (displayWidth is 2 for
+// each), so the grid aligns identically regardless of OS. Like every other
+// collector, it emits display-ready content rather than leaving the prefix for
+// the entrypoint to bolt on. An empty cwd yields empty output so the optional
+// cell drops out of the grid.
 func (c *FolderCollector) Collect(env *Env) (string, error) {
-	statusInput := env.Input
-	name := getProjectName(statusInput.Cwd)
+	name := getProjectName(env.Input.Cwd)
 	if name == "" {
 		return "", nil
 	}
-	return "\U0001F5C2\uFE0F " + name, nil
+	if env.OS.IsDarwin {
+		return "\U0001F5C2\uFE0F " + name, nil
+	}
+	return "\U0001F4C1 " + name, nil
 }
 
 // getProjectName extracts the project folder name

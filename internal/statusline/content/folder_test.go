@@ -168,27 +168,50 @@ func TestFolderCollector_Collect(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    *StatusLineInput
+		os       OSInfo
 		expected string
 	}{
 		{
-			name: "Valid Linux path",
+			// macOS gets the colored 🗂️ (U+1F5C2 + VS16).
+			name: "macOS uses card-index glyph",
 			input: &StatusLineInput{
-				Cwd: "/home/user/minimal-mcp",
+				Cwd: "/Users/john/minimal-mcp",
 			},
+			os:       OSInfo{Name: "darwin", IsDarwin: true},
 			expected: "🗂️ minimal-mcp",
 		},
 		{
-			name: "Valid Windows path",
+			// Every other OS keeps the original 📁 (U+1F4C1).
+			name: "Linux uses plain folder glyph",
+			input: &StatusLineInput{
+				Cwd: "/home/user/minimal-mcp",
+			},
+			os:       OSInfo{Name: "linux"},
+			expected: "📁 minimal-mcp",
+		},
+		{
+			name: "Windows uses plain folder glyph",
 			input: &StatusLineInput{
 				Cwd: "C:\\Users\\User\\my-project",
 			},
-			expected: "🗂️ my-project",
+			os:       OSInfo{Name: "windows", IsWindows: true},
+			expected: "📁 my-project",
 		},
 		{
-			name: "Empty cwd",
+			// Empty cwd drops the cell out of the grid on every OS.
+			name: "Empty cwd on macOS",
 			input: &StatusLineInput{
 				Cwd: "",
 			},
+			os:       OSInfo{Name: "darwin", IsDarwin: true},
+			expected: "",
+		},
+		{
+			name: "Empty cwd on Linux",
+			input: &StatusLineInput{
+				Cwd: "",
+			},
+			os:       OSInfo{Name: "linux"},
 			expected: "",
 		},
 	}
@@ -199,7 +222,7 @@ func TestFolderCollector_Collect(t *testing.T) {
 			collector := NewFolderCollector()
 
 			// Act
-			result, err := collector.Collect(&Env{Input: tt.input})
+			result, err := collector.Collect(&Env{Input: tt.input, OS: tt.os})
 
 			// Assert
 			if err != nil {
