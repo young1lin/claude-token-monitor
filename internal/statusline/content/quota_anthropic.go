@@ -66,12 +66,14 @@ func buildAnthropicUsageFromStdin(rl *StdinRateLimits, claudeDir string) *UsageD
 	usage := &UsageData{Provider: "anthropic"}
 	if rl.FiveHour != nil {
 		usage.FiveHour = rl.FiveHour.UsedPercentage
+		usage.FiveHourPresent = true
 		if rl.FiveHour.ResetsAt > 0 {
 			usage.FiveHourResetAt = time.Unix(rl.FiveHour.ResetsAt, 0)
 		}
 	}
 	if rl.SevenDay != nil {
 		usage.SevenDay = rl.SevenDay.UsedPercentage
+		usage.SevenDayPresent = true
 		if rl.SevenDay.ResetsAt > 0 {
 			usage.SevenDayResetAt = time.Unix(rl.SevenDay.ResetsAt, 0)
 		}
@@ -230,6 +232,7 @@ func fetchUsageAPI(accessToken string) (*UsageData, bool, int, error) {
 
 	if apiResp.FiveHour != nil {
 		usage.FiveHour = apiResp.FiveHour.Utilization
+		usage.FiveHourPresent = true
 		if apiResp.FiveHour.ResetsAt != "" {
 			if t, err := time.Parse(time.RFC3339, apiResp.FiveHour.ResetsAt); err == nil {
 				usage.FiveHourResetAt = t
@@ -240,6 +243,7 @@ func fetchUsageAPI(accessToken string) (*UsageData, bool, int, error) {
 
 	if apiResp.SevenDay != nil {
 		usage.SevenDay = apiResp.SevenDay.Utilization
+		usage.SevenDayPresent = true
 		if apiResp.SevenDay.ResetsAt != "" {
 			if t, err := time.Parse(time.RFC3339, apiResp.SevenDay.ResetsAt); err == nil {
 				usage.SevenDayResetAt = t

@@ -50,6 +50,17 @@ type UsageData struct {
 	SevenDay        float64
 	FiveHourResetAt time.Time
 	SevenDayResetAt time.Time
+	// FiveHourPresent / SevenDayPresent are true when the provider's API
+	// actually returned the window (GLM: a TOKENS_LIMIT with unit=3/n=5 or
+	// unit=6/n=1; Anthropic: a non-nil five_hour/seven_day). They decouple
+	// "this window exists for this account" from "it has live data right
+	// now": a freshly-reset window (percentage=0, reset_at=0) still renders
+	// as "0% 5h ↻ now" instead of vanishing, AND — crucially — a legacy GLM
+	// plan whose API never returns the window stays hidden regardless of
+	// plan name, because max/pro/lite are reused across old and new tiers
+	// so the plan name alone cannot tell us whether a weekly window exists.
+	FiveHourPresent bool
+	SevenDayPresent bool
 	APIUnavailable  bool
 	APIError        string
 
@@ -211,27 +222,22 @@ func getSubscriptionQuota(input *StatusLineInput, now time.Time, provider Provid
 	// Empty provider means "written by pre-multiprovider code" or "Anthropic
 	// path didn't bother tagging itself"; either way render the legacy shape.
 	isAnthropic := usage.Provider == "" || usage.Provider == "anthropic"
-	// For GLM, plan-level metadata tells us which windows the user is
-	// supposed to have — without it, the 5h segment would briefly vanish
-	// right after a window resets (API returns percentage=0 with
-	// nextResetTime=0 because no token has been spent in the new window
-	// yet), which looks like a broken display. See glmPlanWindows.
-	glmHas5h, glmHas7d := false, false
-	if usage.Provider == "glm-zai" || usage.Provider == "glm-zhipu" {
-		glmHas5h, glmHas7d = glmPlanWindows(usage.PlanLevel)
-	}
 	parts := make([]string, 0, 5)
 
-	// 5h: rendered when Anthropic (legacy invariant), the GLM plan is known
-	// to have a 5h window, or there's live data / a known reset time.
-	if isAnthropic || glmHas5h || usage.FiveHour > 0 || !usage.FiveHourResetAt.IsZero() {
+	// 5h: rendered when Anthropic (legacy invariant), the API returned a 5h
+	// window for this account (FiveHourPresent), or there's live data / a
+	// known reset time. Present decouples "this window exists" from "has
+	// data right now", so a freshly-reset window (percentage=0, reset_at=0)
+	// still renders "0% 5h ↻ now" instead of vanishing.
+	if isAnthropic || usage.FiveHourPresent || usage.FiveHour > 0 || !usage.FiveHourResetAt.IsZero() {
 		parts = append(parts, formatPercentWindow(usage.FiveHour, "5h", usage.FiveHourResetAt, now))
 	}
 
-	// 7d: same rule. GLM Max accounts have no weekly window so glmHas7d
-	// stays false there; GLM Lite/Pro accounts will have unit=6,number=1
-	// and surface here exactly like the Anthropic 7-day window.
-	if isAnthropic || glmHas7d || usage.SevenDay > 0 || !usage.SevenDayResetAt.IsZero() {
+	// 7d: same rule, gated on whether the API actually returned a weekly
+	// window (SevenDayPresent) — NOT on plan name. Legacy GLM plans (old
+	// Max/Pro/Lite) never return a unit=6/n=1 limit, so they render 5h
+	// only; current plans return it and surface here like Anthropic's 7d.
+	if isAnthropic || usage.SevenDayPresent || usage.SevenDay > 0 || !usage.SevenDayResetAt.IsZero() {
 		parts = append(parts, formatPercentWindow(usage.SevenDay, "7d", usage.SevenDayResetAt, now))
 	}
 
