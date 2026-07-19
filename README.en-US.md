@@ -13,7 +13,9 @@ Real-time token usage statusline for Claude Code.
 /claude-token-monitor:setup
 ```
 
-## What's New (v0.2.8)
+## What's New (v0.2.11)
+
+> **v0.2.11**: the folder glyph 🗂️ is now macOS-only (other OSes keep 📁); fixed Windows Terminal column alignment (block-element / ambiguous-glyph widths) with new glyph-width regression tests; 5h/7d quota windows are now gated on whether the API returns them rather than the plan name (legacy plans no longer show a fake "0% 7d"); the 1M-window color thresholds were retuned to 400K/300K/250K.
 
 ### Stdin Fast Path (Skip the OAuth Rate Limit)
 
@@ -269,7 +271,7 @@ The plugin writes one or more lines of plain text (with optional ANSI color code
 
 | Field | Meaning |
 |-------|---------|
-| `📁 claude-token-monitor` | Current working directory name |
+| `📁 claude-token-monitor` | Current working directory name (🗂️ on macOS, 📁 elsewhere) |
 | `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | Model + context-token progress bar |
 | `v2.1.143` | Claude Code version |
 | `🌿 main` | Git branch (adds `+new ~modified -deleted` when there are unstaged changes); the icon becomes `🌳` when the cwd is a linked worktree — see [Git Worktree Support](#git-worktree-support) |

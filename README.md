@@ -23,7 +23,9 @@ Claude Code 实时 Token 使用状态栏插件。
 /claude-token-monitor:setup
 ```
 
-## 新功能（v0.2.8）
+## 新功能（v0.2.11）
+
+> **v0.2.11**：文件夹图标 🗂️ 现仅在 macOS 使用，其他系统恢复为 📁；修正 Windows Terminal 列对齐（块元素 / 歧义字符宽度）并新增字形宽度回归测试；5h/7d 配额窗口改由 API 是否返回决定而非套餐名（老套餐不再显示假的「0% 7d」）；1M 窗口进度条配色阈值调整为 400K/300K/250K。
 
 ### Stdin 快路径（避开 OAuth 限流）
 
@@ -277,7 +279,7 @@ Claude Code 通过 stdin 发送 JSON 数据：
 
 | 字段 | 含义 |
 |------|------|
-| `📁 claude-token-monitor` | 当前工作目录名 |
+| `📁 claude-token-monitor` | 当前工作目录名（macOS 显示 🗂️，其他系统显示 📁） |
 | `[Opus 4.7 (1M context) [░░░░░░░░░░] 59.6K/1000K (6.0%)]` | 模型 + 上下文 token 进度条 |
 | `v2.1.143` | Claude Code 版本 |
 | `🌿 main` | Git 分支（带 `+新增 ~修改 -删除` 时显示文件改动统计）；当 cwd 是 linked worktree 时图标变为 `🌳`，详见 [Git Worktree 支持](#git-worktree-支持) |

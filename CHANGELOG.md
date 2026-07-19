@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-07-19
+
+### Changed
+- **1M-window progress-bar color thresholds retuned to 400K / 300K / 250K**
+  (from 250K / 200K / 180K), so a 1M context no longer turns red at ~25% used
+  and stays in the normal band far longer while keeping an early-warning posture.
+- **1M 窗口进度条配色阈值调整为 400K / 300K / 250K**（原 250K / 200K / 180K），
+  1M 上下文不再用到约 25% 就飘红，正常工作区间更长，同时保留早期预警。
+
+### Fixed
+- **The folder glyph 🗂️ is now used on macOS only; every other OS keeps the
+  original 📁.** Earlier work switched the folder cell to 🗂️ (U+1F5C2 + VS16)
+  for a colored icon on macOS, but that emoji-presentation sequence has no
+  colored rendering on Windows/Linux terminals, where it degraded to a
+  grayscale or tofu glyph. The glyph now branches on the OS; both forms occupy
+  two display cells, so column alignment is unchanged.
+- **文件夹图标 🗂️ 现仅在 macOS 使用，其他系统恢复为原来的 📁。** 此前为了 macOS 上的
+  彩色图标把文件夹格改成了 🗂️（U+1F5C2 + VS16），但该 emoji 变体序列在 Windows/Linux
+  终端没有彩色渲染，会退化成灰度或豆腐块。现在按操作系统切换图标；两种字形都占两个显示
+  单元，列对齐不变。
+- **Column alignment on Windows Terminal.** Block Elements (`█░`) now count as
+  width 1 and East Asian Ambiguous glyphs (`·↻↑`) default to narrow, matching
+  what Windows Terminal / Terminal.app / iTerm2 actually render (probe-verified).
+  A glyph-width registry test and a WT layout regression test now fail CI if a
+  future glyph would silently drift a column. `STATUSLINE_AMBIGUOUS_WIDE=1`
+  remains the opt-in for terminal+font combos that render Ambiguous wide.
+- **Windows Terminal 列对齐。** 块元素 `█░` 现按宽度 1 计、东亚歧义字符 `·↻↑` 默认按窄，
+  与 Windows Terminal / Terminal.app / iTerm2 实测渲染一致（探针实测）。新增字形宽度
+  注册表测试和 WT 布局回归测试，未来新增字形若会错列则在 CI 失败。
+  `STATUSLINE_AMBIGUOUS_WIDE=1` 保留为「渲染成宽」终端字体组合的显式开关。
+- **5h / 7d quota windows are shown based on whether the API returns the
+  window, not on the plan name.** Legacy GLM/Anthropic plans whose API never
+  sends a weekly window no longer show a fake "0% 7d"; current plans still
+  render it, including across a reset. Verified against a real legacy-Max account.
+- **5h / 7d 配额窗口的显隐改由「API 是否返回该窗口」决定，而非套餐名。** API 从不返回
+  周窗的老 GLM/Anthropic 套餐不再显示假的「0% 7d」；新套餐照常显示（含重置后）。已在真实
+  legacy-Max 账号上验证。
+- **macOS resident-memory reading** now uses `ps -o rss=` instead of a
+  non-existent sysctl OID — correct on both Intel (4K) and Apple Silicon (16K)
+  page sizes.
+- **macOS 常驻内存读取** 改用 `ps -o rss=`，不再依赖不存在的 sysctl OID——在 Intel（4K）
+  与 Apple Silicon（16K）页大小上都正确。
+- **`setup` honors `CLAUDE_CONFIG_DIR`** when installing the statusline binary,
+  instead of hardcoding `~/.claude`.
+- **`setup` 安装 statusline 二进制时尊重 `CLAUDE_CONFIG_DIR`**，不再写死 `~/.claude`。
+
 ## [0.2.10] - 2026-06-21
 
 ### Fixed
